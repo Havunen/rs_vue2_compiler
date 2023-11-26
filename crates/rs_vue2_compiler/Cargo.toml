@@ -1,0 +1,8 @@
+[package]
+name = "rs_vue2_compiler"
+version = "0.0.1"
+edition = "2021"
+
+
+[dependencies]
+rs_html_parser = {version = "0.0.5"}
