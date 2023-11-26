@@ -26,8 +26,8 @@ struct CompilerOptions {
 
 struct ElementTags {}
 
-impl ElementTags {
-    const TYPE: UniCase<&'static str> = UniCase::new("type");
+lazy_static! {
+    static ref TYPE: UniCase<&'static str> = UniCase::new("type");
 }
 
 fn is_forbidden_tag(el: &Token) -> bool {
@@ -38,7 +38,7 @@ fn is_forbidden_tag(el: &Token) -> bool {
     match &el.data {
         Cow::Borrowed("style") => true,
         Cow::Borrowed("script") => {
-            let attr_value = get_attribute(el, &ElementTags::TYPE);
+            let attr_value = get_attribute(el, &TYPE);
 
             if let Some((val, _quote)) = attr_value {
                 return val == "text/javascript"
