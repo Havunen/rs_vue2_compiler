@@ -30,3 +30,7 @@ pub fn get_attribute<'a>(token: &'a Token, str: &'a UniCase<&'a str>) -> &'a Opt
 
     &None
 }
+
+pub fn is_pre_tag_default(tag: &str) -> bool {
+    tag.eq_ignore_ascii_case("pre")
+}
