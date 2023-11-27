@@ -1,7 +1,7 @@
 mod util;
 mod ast_element;
 mod helpers;
-mod unicodes;
+mod uni_codes;
 
 use std::borrow::Cow;
 use lazy_static::lazy_static;
@@ -13,7 +13,7 @@ use rs_html_parser_tokens::TokenKind::OpenTag;
 
 use crate::ast_element::{ASTElement, create_ast_element};
 use crate::helpers::{get_and_remove_attr, get_and_remove_attr_impl};
-use crate::unicodes::{UC_TYPE, UC_V_PRE};
+use crate::uni_codes::{UC_TYPE, UC_V_PRE, UC_V_FOR};
 use crate::util::{get_attribute, has_attribute, is_pre_tag_default};
 
 lazy_static! {
@@ -136,6 +136,8 @@ pub fn parse(template: &str, options: CompilerOptions) {
         }
         if in_v_pre {
             process_raw_attributes(&mut element)
+        } else if !element.processed {
+            element = process_for(element);
         }
     }
 }
@@ -146,4 +148,12 @@ fn process_raw_attributes(el: &mut ASTElement) {
         // non root node in pre blocks with no attributes
         el.plain = true;
     }
+}
+
+fn process_for(mut el: ASTElement) -> ASTElement {
+    get_and_remove_attr_impl(&mut el.token.attrs, &mut el.ignored, &UC_V_FOR, false);
+    // if let Some(v_for_val) =  {
+    //
+    // }
+    el
 }

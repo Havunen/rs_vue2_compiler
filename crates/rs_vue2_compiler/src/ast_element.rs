@@ -14,7 +14,8 @@ pub struct ASTElement<'a> {
     pub forbidden: bool,
     pub pre: bool,
     pub plain: bool,
-    pub ignored: BTreeSet<UniCase<&'a str>>
+    pub ignored: BTreeSet<UniCase<&'a str>>,
+    pub processed: bool,
 }
 
 
@@ -25,5 +26,6 @@ pub fn create_ast_element(token: Token) -> ASTElement {
         pre: false,
         plain: false,
         ignored: Default::default(),
+        processed: false,
     }
 }
