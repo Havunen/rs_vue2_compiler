@@ -3,6 +3,9 @@ mod ast_element;
 mod helpers;
 mod uni_codes;
 
+#[macro_use]
+extern crate lazy_static;
+
 use std::borrow::Cow;
 use lazy_static::lazy_static;
 use regex::Regex;
@@ -17,7 +20,18 @@ use crate::uni_codes::{UC_TYPE, UC_V_PRE, UC_V_FOR};
 use crate::util::{get_attribute, has_attribute, is_pre_tag_default};
 
 lazy_static! {
-    static ref invalidAttributeRE: Regex = Regex::new(r##"/[\s"'<>\/=]/"##).unwrap();
+    static ref INVALID_ATTRIBUTE_RE: Regex = Regex::new(r##"/[\s"'<>\/=]/"##).unwrap();
+    static ref FOR_ALIAS_RE: Regex = Regex::new(r"([\s\S]*?)\s+(?:in|of)\s+([\s\S]*)").unwrap();
+    static ref FOR_ITERATOR_RE: Regex = Regex::new(r",([^,\}\]]*)(?:,([^,\}\]]*))?$").unwrap();
+    static ref STRIP_PARENS_RE: Regex = Regex::new(r"^\(|\)$").unwrap();
+    static ref DYNAMIC_ARG_RE: Regex = Regex::new(r"^\[.*\]$").unwrap();
+    static ref ARG_RE: Regex = Regex::new(r":(.*)$").unwrap();
+    static ref BIND_RE: Regex = Regex::new(r"^:|^\.|^v-bind:").unwrap();
+    static ref PROP_BIND_RE: Regex = Regex::new(r"^\.").unwrap();
+    static ref MODIFIER_RE: Regex = Regex::new(r"\.[^.\]]+(?=[^\]]*$)").unwrap();
+    static ref SLOT_RE: Regex = Regex::new(r"^v-slot(:|$)|^#").unwrap();
+    static ref LINE_BREAK_RE: Regex = Regex::new(r"[\r\n]").unwrap();
+    static ref WHITESPACE_RE: Regex = Regex::new(r"[ \f\t\r\n]+").unwrap();
 }
 
 
@@ -101,7 +115,7 @@ pub fn parse(template: &str, options: CompilerOptions) {
         if options.dev {
             if let Some(attrs) = &element.token.attrs {
                 for (attr_key, attr_value) in attrs {
-                    if invalidAttributeRE.find(&attr_key).is_some() {
+                    if INVALID_ATTRIBUTE_RE.find(&attr_key).is_some() {
                         warn(
                             "Invalid dynamic argument expression: attribute names cannot contain spaces, quotes, <, >, / or =."
                         )
@@ -151,9 +165,41 @@ fn process_raw_attributes(el: &mut ASTElement) {
 }
 
 fn process_for(mut el: ASTElement) -> ASTElement {
-    get_and_remove_attr_impl(&mut el.token.attrs, &mut el.ignored, &UC_V_FOR, false);
-    // if let Some(v_for_val) =  {
-    //
-    // }
+    let val = get_and_remove_attr_impl(&mut el.token.attrs, &mut el.ignored, &UC_V_FOR, false);
+    if let Some(v_for_val) = val {
+        let result = parse_for(&v_for_val);
+    }
     el
 }
+
+pub struct ForParseResult {
+    pub alias: String,
+    pub for_value: String,
+    pub iterator1: Option<String>,
+    pub iterator2: Option<String>,
+}
+
+pub fn parse_for(exp: &str) -> Option<ForParseResult> {
+    if let Some(in_match) = FOR_ALIAS_RE.captures(exp) {
+        let mut res = ForParseResult {
+            alias: STRIP_PARENS_RE.replace_all(in_match[1].trim(), "").to_string(),
+            for_value: in_match[2].trim().to_string(),
+            iterator1: None,
+            iterator2: None,
+        };
+
+        let alias = res.alias.clone();
+        if let Some(iterator_match) = FOR_ITERATOR_RE.captures(&alias) {
+            res.alias = iterator_match[1].trim().to_string();
+            res.iterator1 = Some(iterator_match[1].trim().to_string());
+            if let Some(iterator2) = iterator_match.get(2) {
+                res.iterator2 = Some(iterator2.as_str().trim().to_string());
+            }
+        }
+
+        Some(res)
+    } else {
+        None
+    }
+}
+
