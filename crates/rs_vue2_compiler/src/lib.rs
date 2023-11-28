@@ -1,26 +1,26 @@
 mod util;
-mod ast_element;
+mod ast_elements;
 mod helpers;
 mod uni_codes;
+mod ast_tree;
 
 #[macro_use]
 extern crate lazy_static;
 
 use std::borrow::Cow;
-use std::cell::RefCell;
-use std::default;
+use std::collections::VecDeque;
 use std::rc::Rc;
 use lazy_static::lazy_static;
 use regex::Regex;
 use rs_html_parser::{Parser, ParserOptions};
 use rs_html_parser_tokenizer::TokenizerOptions;
-use rs_html_parser_tokens::Token;
-use rs_html_parser_tokens::TokenKind::OpenTag;
+use rs_html_parser_tokens::{Token, TokenKind};
 
-use crate::ast_element::{ASTElement, ASTIfCondition, create_ast_element};
+use crate::ast_elements::{ASTElement, create_ast_element};
+use crate::ast_tree::{ASTNode, ASTTree};
 use crate::helpers::{get_and_remove_attr};
 use crate::uni_codes::{UC_TYPE, UC_V_PRE, UC_V_FOR, UC_V_IF, UC_V_ELSE, UC_V_ELSE_IF, UC_V_ONCE};
-use crate::util::{get_attribute, has_attribute, is_pre_tag_default};
+use crate::util::{get_attribute, has_attribute};
 
 lazy_static! {
     static ref INVALID_ATTRIBUTE_RE: Regex = Regex::new(r##"/[\s"'<>\/=]/"##).unwrap();
@@ -52,7 +52,7 @@ struct CompilerOptions {
 
 
 fn is_forbidden_tag(el: &Token) -> bool {
-    if &el.kind != &OpenTag {
+    if &el.kind != &TokenKind::OpenTag {
         return false;
     }
 
@@ -79,85 +79,156 @@ fn process_pre(mut el: ASTElement) -> ASTElement {
     el
 }
 
-/**
- * Convert HTML string to AST.
- */
-pub fn parse(template: &str, options: CompilerOptions) {
+pub struct VueParser<'a> {
+    options: CompilerOptions,
 
-    let platform_is_pre_tag: fn(tag: &str) -> bool = match options.is_pre_tag {
-        None => |x| false,
-        Some(v) => v
-    };
+    stack: VecDeque<ASTElement<'a>>,
+    root: Option<ASTElement<'a>>,
+    current_parent: Option<&'a ASTElement<'a>>,
 
-    // let mut root;
-    // let mut current_parent;
-    let mut in_v_pre: bool = false;
-    let mut in_pre: bool = false;
-    let mut warned: bool = false;
+    in_v_pre: bool,
+    in_pre: bool,
+    warned: bool,
+}
 
-    let warned_once = |msg: &str| {
-        if !warned {
-            warned = true;
-            warn(msg)
+const PARSER_OPTIONS: ParserOptions = ParserOptions {
+    xml_mode: false,
+    tokenizer_options: TokenizerOptions {
+    xml_mode: Some(false),
+    decode_entities: Some(true),
+    },
+};
+
+impl<'i> VueParser<'i> {
+    pub fn new(options: CompilerOptions) -> VueParser<'i> {
+        VueParser {
+            options,
+            stack: Default::default(),
+            root: None,
+            current_parent: None,
+            in_v_pre: false,
+            in_pre: false,
+            warned: false,
         }
-    };
+    }
 
-    let parser_options = ParserOptions {
-        xml_mode: false,
-        tokenizer_options: TokenizerOptions {
-            xml_mode: Some(false),
-            decode_entities: Some(true),
-        },
-    };
+    fn warn_once(&mut self, msg: &str) {
+        if !self.warned {
+            self.warned = true;
+            warn(msg);
+        }
+    }
 
-    let parser = Parser::new(template, &parser_options);
+    // fn check_root_constraints(&mut self) {
+    //     if self.warned {
+    //        return;
+    //     }
+    //     let el = self.root.unwrap();
+    //
+    //     if el.token.data.eq_ignore_ascii_case("slot")
+    //         || el.token.data.eq_ignore_ascii_case("template") {
+    //         self.warn_once("Cannot use <${el.tag}> as component root element because it may contain multiple nodes.")
+    //     }
+    //     if has_attribute(&el.token, &UC_V_FOR) {
+    //         self.warn_once("Cannot use v-for on stateful component root element because it renders multiple elements.")
+    //     }
+    // }
 
-    for token in parser {
-        let mut element = create_ast_element(token);
+    fn platform_is_pre_tag(&mut self, tag: &str) -> bool {
+        if let Some(pre_tag_fn) = self.options.is_pre_tag {
+            return pre_tag_fn(tag);
+        }
 
-        if options.dev {
-            if let Some(attrs) = &element.token.attrs {
-                for (attr_key, attr_value) in attrs {
-                    if INVALID_ATTRIBUTE_RE.find(&attr_key).is_some() {
-                        warn(
-                            "Invalid dynamic argument expression: attribute names cannot contain spaces, quotes, <, >, / or =."
-                        )
+        return false;
+    }
+
+    pub fn parse(&'i mut self, template: &'i str) -> Option<ASTTree<'i>> {
+        let parser = Parser::new(template, &PARSER_OPTIONS);
+        let is_dev = self.options.dev;
+        let mut tree: Option<ASTTree> = None;
+        let mut stack: VecDeque<ASTElement> = Default::default();
+        let mut current_parent: Option<&ASTElement>;
+
+        for token in parser {
+            match token.kind {
+                TokenKind::OpenTag => {
+                    let mut element = create_ast_element(token);
+
+                    if is_dev {
+                        if let Some(attrs) = &element.token.attrs {
+                            for (attr_key, _attr_value) in attrs {
+                                if INVALID_ATTRIBUTE_RE.find(&attr_key).is_some() {
+                                    warn(
+                                        "Invalid dynamic argument expression: attribute names cannot contain spaces, quotes, <, >, / or =."
+                                    )
+                                }
+                            }
+                        }
                     }
-                }
-            }
-        }
 
-        if is_forbidden_tag(&element.token) && !options.is_ssr {
-            element.forbidden = true;
+                    if is_forbidden_tag(&element.token) && !self.options.is_ssr {
+                        element.forbidden = true;
 
-            if options.dev {
-                // TODO: add tag
-                warn("
+                        if is_dev {
+                            // TODO: add tag
+                            warn("
             Templates should only be responsible for mapping the state to the
             UI. Avoid placing tags with side-effects in your templates, such as
             <{tag}> as they will not be parsed.
                 ")
+                        }
+                    }
+
+                    // TODO Apply pre-transforms
+
+                    if !self.in_v_pre {
+                        element = process_pre(element);
+                        if element.pre {
+                            self.in_v_pre = true;
+                        }
+                    }
+                    if self.platform_is_pre_tag(&element.token.data) {
+                        self.in_pre = true;
+                    }
+                    if self.in_v_pre {
+                        process_raw_attributes(&mut element)
+                    } else if !element.processed {
+                        element = process_for(element);
+                        element = process_if(element);
+                        element = process_once(element);
+                    }
+
+                    current_parent = Some(&element);
+
+                    match tree {
+                        None => {
+                            tree = Some(ASTTree::new(element));
+                            if is_dev {
+                                // self.check_root_constraints()
+                            }
+                        }
+                        Some(_) => {
+                            stack.push_back(element);
+                        }
+                    }
+                },
+                TokenKind::CloseTag => {
+                    let el_option = self.stack.pop_back();
+
+                    if let Some(el) = el_option {
+                        process_element(el);
+                    }
+                },
+                TokenKind::Text => {
+
+                }
+                _ => {
+                    todo!("missing implementation")
+                }
             }
         }
 
-        // TODO Apply pre-transforms
-
-        if !in_v_pre {
-            element = process_pre(element);
-            if element.pre {
-                in_v_pre = true;
-            }
-        }
-        if platform_is_pre_tag(&element.token.data) {
-            in_pre = true;
-        }
-        if in_v_pre {
-            process_raw_attributes(&mut element)
-        } else if !element.processed {
-            element = process_for(element);
-            element = process_if(element);
-            element = process_once(element);
-        }
+        tree
     }
 }
 
@@ -268,5 +339,9 @@ fn process_once(mut el: ASTElement) -> ASTElement {
         el.once = true
     }
 
+    el
+}
+
+fn process_element(mut el: ASTElement) -> ASTElement {
     el
 }

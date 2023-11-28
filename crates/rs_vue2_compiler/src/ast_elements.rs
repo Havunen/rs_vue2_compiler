@@ -1,7 +1,5 @@
 use std::borrow::Cow;
-use std::cell::RefCell;
 use std::collections::BTreeSet;
-use std::rc::{Rc, Weak};
 use rs_html_parser_tokens::Token;
 use unicase::UniCase;
 
@@ -39,7 +37,7 @@ pub struct ASTElement<'a> {
 }
 
 
-pub fn create_ast_element(token: Token) -> ASTElement {
+pub fn create_ast_element<'a>(token: Token<'a>) -> ASTElement<'a> {
     ASTElement {
         token,
         forbidden: false,
