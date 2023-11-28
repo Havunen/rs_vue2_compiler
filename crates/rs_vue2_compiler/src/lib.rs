@@ -7,6 +7,9 @@ mod uni_codes;
 extern crate lazy_static;
 
 use std::borrow::Cow;
+use std::cell::RefCell;
+use std::default;
+use std::rc::Rc;
 use lazy_static::lazy_static;
 use regex::Regex;
 use rs_html_parser::{Parser, ParserOptions};
@@ -14,9 +17,9 @@ use rs_html_parser_tokenizer::TokenizerOptions;
 use rs_html_parser_tokens::Token;
 use rs_html_parser_tokens::TokenKind::OpenTag;
 
-use crate::ast_element::{ASTElement, create_ast_element};
-use crate::helpers::{get_and_remove_attr, get_and_remove_attr_impl};
-use crate::uni_codes::{UC_TYPE, UC_V_PRE, UC_V_FOR};
+use crate::ast_element::{ASTElement, ASTIfCondition, create_ast_element};
+use crate::helpers::{get_and_remove_attr};
+use crate::uni_codes::{UC_TYPE, UC_V_PRE, UC_V_FOR, UC_V_IF, UC_V_ELSE, UC_V_ELSE_IF};
 use crate::util::{get_attribute, has_attribute, is_pre_tag_default};
 
 lazy_static! {
@@ -69,7 +72,7 @@ fn is_forbidden_tag(el: &Token) -> bool {
 }
 
 fn process_pre(mut el: ASTElement) -> ASTElement {
-    if get_and_remove_attr_impl(&mut el.token.attrs, &mut el.ignored, &UC_V_PRE, false).is_some() {
+    if get_and_remove_attr(&mut el.token.attrs, &mut el.ignored, &UC_V_PRE, false).is_some() {
         el.pre = true;
     }
 
@@ -152,6 +155,7 @@ pub fn parse(template: &str, options: CompilerOptions) {
             process_raw_attributes(&mut element)
         } else if !element.processed {
             element = process_for(element);
+            element = process_if(element);
         }
     }
 }
@@ -165,21 +169,32 @@ fn process_raw_attributes(el: &mut ASTElement) {
 }
 
 fn process_for(mut el: ASTElement) -> ASTElement {
-    let val = get_and_remove_attr_impl(&mut el.token.attrs, &mut el.ignored, &UC_V_FOR, false);
+    let val = get_and_remove_attr(&mut el.token.attrs, &mut el.ignored, &UC_V_FOR, false);
     if let Some(v_for_val) = val {
-        let result = parse_for(&v_for_val);
+        let result_option = parse_for(&v_for_val);
+
+        if let Some(result) = result_option {
+            el.alias = Some(result.alias);
+            el.for_value = Some(result.for_value);
+            el.iterator1 = result.iterator1;
+            el.iterator2 = result.iterator2;
+        } else {
+            // TODO
+            warn("Invalid v-for expression: ${exp}")
+        }
     }
+
     el
 }
 
-pub struct ForParseResult {
+struct ForParseResult {
     pub alias: String,
     pub for_value: String,
     pub iterator1: Option<String>,
     pub iterator2: Option<String>,
 }
 
-pub fn parse_for(exp: &str) -> Option<ForParseResult> {
+fn parse_for(exp: &str) -> Option<ForParseResult> {
     if let Some(in_match) = FOR_ALIAS_RE.captures(exp) {
         let mut res = ForParseResult {
             alias: STRIP_PARENS_RE.replace_all(in_match[1].trim(), "").to_string(),
@@ -203,3 +218,39 @@ pub fn parse_for(exp: &str) -> Option<ForParseResult> {
     }
 }
 
+fn process_if(mut el: ASTElement) -> ASTElement {
+    let vif_optional = get_and_remove_attr(
+        &mut el.token.attrs,
+        &mut el.ignored,
+        &UC_V_IF,
+        false,
+    );
+
+    if let Some(vif_value) = vif_optional {
+        el.if_val = Some(vif_value);
+    } else {
+        let v_else_optional = get_and_remove_attr(
+            &mut el.token.attrs,
+            &mut el.ignored,
+            &UC_V_ELSE,
+            false,
+        );
+
+        if v_else_optional.is_some() {
+            el.is_else = true
+        }
+
+        let v_else_if_optional = get_and_remove_attr(
+            &mut el.token.attrs,
+            &mut el.ignored,
+            &UC_V_ELSE_IF,
+            false,
+        );
+
+        if let Some(v_else_if_val) = v_else_if_optional {
+            el.if_val = Some(v_else_if_val);
+        }
+    }
+
+    el
+}
