@@ -19,7 +19,7 @@ use rs_html_parser_tokens::TokenKind::OpenTag;
 
 use crate::ast_element::{ASTElement, ASTIfCondition, create_ast_element};
 use crate::helpers::{get_and_remove_attr};
-use crate::uni_codes::{UC_TYPE, UC_V_PRE, UC_V_FOR, UC_V_IF, UC_V_ELSE, UC_V_ELSE_IF};
+use crate::uni_codes::{UC_TYPE, UC_V_PRE, UC_V_FOR, UC_V_IF, UC_V_ELSE, UC_V_ELSE_IF, UC_V_ONCE};
 use crate::util::{get_attribute, has_attribute, is_pre_tag_default};
 
 lazy_static! {
@@ -156,6 +156,7 @@ pub fn parse(template: &str, options: CompilerOptions) {
         } else if !element.processed {
             element = process_for(element);
             element = process_if(element);
+            element = process_once(element);
         }
     }
 }
@@ -250,6 +251,21 @@ fn process_if(mut el: ASTElement) -> ASTElement {
         if let Some(v_else_if_val) = v_else_if_optional {
             el.if_val = Some(v_else_if_val);
         }
+    }
+
+    el
+}
+
+fn process_once(mut el: ASTElement) -> ASTElement {
+    let v_once_optional = get_and_remove_attr(
+        &mut el.token.attrs,
+        &mut el.ignored,
+        &UC_V_ONCE,
+        false,
+    );
+
+    if v_once_optional.is_some() {
+        el.once = true
     }
 
     el

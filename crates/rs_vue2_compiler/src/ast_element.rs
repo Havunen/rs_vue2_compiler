@@ -34,6 +34,8 @@ pub struct ASTElement<'a> {
     pub if_processed: bool,
     pub else_if_val: Option<Cow<'a, str>>,
     pub is_else: bool,
+
+    pub once: bool,
 }
 
 
@@ -53,5 +55,6 @@ pub fn create_ast_element(token: Token) -> ASTElement {
         if_processed: false,
         else_if_val: None,
         is_else: false,
+        once: false,
     }
 }

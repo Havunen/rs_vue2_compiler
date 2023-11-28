@@ -8,4 +8,5 @@ lazy_static! {
     pub static ref UC_V_IF: UniCase<&'static str> = UniCase::new("v-if");
     pub static ref UC_V_ELSE: UniCase<&'static str> = UniCase::new("v-else");
     pub static ref UC_V_ELSE_IF: UniCase<&'static str> = UniCase::new("v-else-if");
+    pub static ref UC_V_ONCE: UniCase<&'static str> = UniCase::new("v-once");
 }
