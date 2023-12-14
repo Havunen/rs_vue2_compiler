@@ -3,6 +3,7 @@ mod ast_elements;
 mod helpers;
 mod uni_codes;
 mod ast_tree;
+mod filter_parser;
 
 #[macro_use]
 extern crate lazy_static;
@@ -15,11 +16,12 @@ use regex::Regex;
 use rs_html_parser::{Parser, ParserOptions};
 use rs_html_parser_tokenizer::TokenizerOptions;
 use rs_html_parser_tokens::{Token, TokenKind};
+use unicase::UniCase;
 
 use crate::ast_elements::{ASTElement, create_ast_element};
 use crate::ast_tree::{ASTNode, ASTTree};
-use crate::helpers::{get_and_remove_attr};
-use crate::uni_codes::{UC_TYPE, UC_V_PRE, UC_V_FOR, UC_V_IF, UC_V_ELSE, UC_V_ELSE_IF, UC_V_ONCE};
+use crate::helpers::{get_and_remove_attr, get_binding_attr};
+use crate::uni_codes::{UC_TYPE, UC_V_PRE, UC_V_FOR, UC_V_IF, UC_V_ELSE, UC_V_ELSE_IF, UC_V_ONCE, UC_KEY};
 use crate::util::{get_attribute, has_attribute};
 
 lazy_static! {
@@ -83,7 +85,6 @@ pub struct VueParser<'a> {
     options: CompilerOptions,
 
     stack: VecDeque<ASTElement<'a>>,
-    root: Option<ASTElement<'a>>,
     current_parent: Option<&'a ASTElement<'a>>,
 
     in_v_pre: bool,
@@ -104,7 +105,6 @@ impl<'i> VueParser<'i> {
         VueParser {
             options,
             stack: Default::default(),
-            root: None,
             current_parent: None,
             in_v_pre: false,
             in_pre: false,
@@ -119,20 +119,19 @@ impl<'i> VueParser<'i> {
         }
     }
 
-    // fn check_root_constraints(&mut self) {
-    //     if self.warned {
-    //        return;
-    //     }
-    //     let el = self.root.unwrap();
-    //
-    //     if el.token.data.eq_ignore_ascii_case("slot")
-    //         || el.token.data.eq_ignore_ascii_case("template") {
-    //         self.warn_once("Cannot use <${el.tag}> as component root element because it may contain multiple nodes.")
-    //     }
-    //     if has_attribute(&el.token, &UC_V_FOR) {
-    //         self.warn_once("Cannot use v-for on stateful component root element because it renders multiple elements.")
-    //     }
-    // }
+    fn check_root_constraints(&mut self, new_root: &ASTElement ) {
+        if self.warned {
+           return;
+        }
+
+        if new_root.token.data.eq_ignore_ascii_case("slot")
+            || new_root.token.data.eq_ignore_ascii_case("template") {
+            self.warn_once("Cannot use <${el.tag}> as component root element because it may contain multiple nodes.")
+        }
+        if has_attribute(&new_root.token, &UC_V_FOR) {
+            self.warn_once("Cannot use v-for on stateful component root element because it renders multiple elements.")
+        }
+    }
 
     fn platform_is_pre_tag(&mut self, tag: &str) -> bool {
         if let Some(pre_tag_fn) = self.options.is_pre_tag {
@@ -202,10 +201,10 @@ impl<'i> VueParser<'i> {
 
                     match tree {
                         None => {
-                            tree = Some(ASTTree::new(element));
                             if is_dev {
-                                // self.check_root_constraints()
+                                self.check_root_constraints(&element);
                             }
+                            tree = Some(ASTTree::new(element));
                         }
                         Some(_) => {
                             stack.push_back(element);
@@ -215,8 +214,12 @@ impl<'i> VueParser<'i> {
                 TokenKind::CloseTag => {
                     let el_option = self.stack.pop_back();
 
-                    if let Some(el) = el_option {
-                        process_element(el);
+                    if let Some(mut el) = el_option {
+                        // trim white space ??
+
+                        if !self.in_v_pre && !el.processed {
+                            el = process_element(el);
+                        }
                     }
                 },
                 TokenKind::Text => {
@@ -343,5 +346,13 @@ fn process_once(mut el: ASTElement) -> ASTElement {
 }
 
 fn process_element(mut el: ASTElement) -> ASTElement {
+    el = process_key(el);
+
+    el
+}
+
+fn process_key(mut el: ASTElement) -> ASTElement {
+    let exp = get_binding_attr(&mut el.token.attrs, &mut el.ignored, &UC_KEY, false);
+
     el
 }
