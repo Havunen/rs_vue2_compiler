@@ -1,9 +1,7 @@
-use std::borrow::Cow;
 use rs_html_parser_tokenizer_tokens::QuoteType;
 use rs_html_parser_tokens::Token;
-use unicase::UniCase;
 
-pub fn has_attribute<'a>(token: &Token, str: &UniCase<&str>) -> bool {
+pub fn has_attribute(token: &Token, str: &str) -> bool {
     if let Some(attrs) = &token.attrs {
         return match attrs.get(str) {
             Some(_) => {
@@ -18,7 +16,7 @@ pub fn has_attribute<'a>(token: &Token, str: &UniCase<&str>) -> bool {
     false
 }
 
-pub fn get_attribute<'a>(token: &'a Token, str: &'a UniCase<&'a str>) -> &'a Option<(Cow<'a, str>, QuoteType)> {
+pub fn get_attribute<'a>(token: &'a Token, str: &str) -> &'a Option<(Box<str>, QuoteType)> {
     if let Some(attrs) = &token.attrs {
         return match attrs.get(str) {
             Some(val) => {

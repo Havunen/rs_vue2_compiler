@@ -1,7 +1,6 @@
-use std::borrow::Cow;
 use rs_html_parser_tokenizer_tokens::QuoteType;
 
-pub fn parse_filters((expr, quote_type): &(Cow<str>, QuoteType)) -> String {
+pub fn parse_filters((expr, quote_type): &(Box<str>, QuoteType)) -> String {
     let mut in_single = quote_type == &QuoteType::Single;
     let mut in_double = quote_type == &QuoteType::Double;
     let mut in_template_string = false;

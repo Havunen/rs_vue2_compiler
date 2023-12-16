@@ -8,20 +8,15 @@ mod filter_parser;
 #[macro_use]
 extern crate lazy_static;
 
-use std::borrow::Cow;
 use std::collections::VecDeque;
-use std::rc::Rc;
 use lazy_static::lazy_static;
 use regex::Regex;
 use rs_html_parser::{Parser, ParserOptions};
 use rs_html_parser_tokenizer::TokenizerOptions;
 use rs_html_parser_tokens::{Token, TokenKind};
-use unicase::UniCase;
-
 use crate::ast_elements::{ASTElement, create_ast_element};
-use crate::ast_tree::{ASTNode, ASTTree};
-use crate::helpers::{get_and_remove_attr, get_binding_attr};
-use crate::uni_codes::{UC_TYPE, UC_V_PRE, UC_V_FOR, UC_V_IF, UC_V_ELSE, UC_V_ELSE_IF, UC_V_ONCE, UC_KEY};
+use crate::ast_tree::ASTTree;
+use crate::uni_codes::{UC_TYPE, UC_V_FOR};
 use crate::util::{get_attribute, has_attribute};
 
 lazy_static! {
@@ -58,13 +53,13 @@ fn is_forbidden_tag(el: &Token) -> bool {
         return false;
     }
 
-    match &el.data {
-        Cow::Borrowed("style") => true,
-        Cow::Borrowed("script") => {
+    match &*el.data {
+        "style" => true,
+        "script" => {
             let attr_value = get_attribute(el, &UC_TYPE);
 
             if let Some((val, _quote)) = attr_value {
-                return val == "text/javascript";
+                return &**val == "text/javascript";
             }
 
             return false;
@@ -73,19 +68,11 @@ fn is_forbidden_tag(el: &Token) -> bool {
     }
 }
 
-fn process_pre(mut el: ASTElement) -> ASTElement {
-    if get_and_remove_attr(&mut el.token.attrs, &mut el.ignored, &UC_V_PRE, false).is_some() {
-        el.pre = true;
-    }
-
-    el
-}
-
 pub struct VueParser<'a> {
     options: CompilerOptions,
 
-    stack: VecDeque<ASTElement<'a>>,
-    current_parent: Option<&'a ASTElement<'a>>,
+    stack: VecDeque<ASTElement>,
+    current_parent: Option<&'a ASTElement>,
 
     in_v_pre: bool,
     in_pre: bool,
@@ -181,7 +168,7 @@ impl<'i> VueParser<'i> {
                     // TODO Apply pre-transforms
 
                     if !self.in_v_pre {
-                        element = process_pre(element);
+                        element.process_pre();
                         if element.pre {
                             self.in_v_pre = true;
                         }
@@ -190,11 +177,11 @@ impl<'i> VueParser<'i> {
                         self.in_pre = true;
                     }
                     if self.in_v_pre {
-                        process_raw_attributes(&mut element)
+                        element.process_raw_attributes()
                     } else if !element.processed {
-                        element = process_for(element);
-                        element = process_if(element);
-                        element = process_once(element);
+                        element.process_for();
+                        element.process_if();
+                        element.process_once();
                     }
 
                     current_parent = Some(&element);
@@ -218,7 +205,7 @@ impl<'i> VueParser<'i> {
                         // trim white space ??
 
                         if !self.in_v_pre && !el.processed {
-                            el = process_element(el);
+                            el.process_element();
                         }
                     }
                 },
@@ -233,126 +220,4 @@ impl<'i> VueParser<'i> {
 
         tree
     }
-}
-
-fn process_raw_attributes(el: &mut ASTElement) {
-    // processing attributes should not be needed
-    if el.token.attrs.is_none() {
-        // non root node in pre blocks with no attributes
-        el.plain = true;
-    }
-}
-
-fn process_for(mut el: ASTElement) -> ASTElement {
-    let val = get_and_remove_attr(&mut el.token.attrs, &mut el.ignored, &UC_V_FOR, false);
-    if let Some(v_for_val) = val {
-        let result_option = parse_for(&v_for_val);
-
-        if let Some(result) = result_option {
-            el.alias = Some(result.alias);
-            el.for_value = Some(result.for_value);
-            el.iterator1 = result.iterator1;
-            el.iterator2 = result.iterator2;
-        } else {
-            // TODO
-            warn("Invalid v-for expression: ${exp}")
-        }
-    }
-
-    el
-}
-
-struct ForParseResult {
-    pub alias: String,
-    pub for_value: String,
-    pub iterator1: Option<String>,
-    pub iterator2: Option<String>,
-}
-
-fn parse_for(exp: &str) -> Option<ForParseResult> {
-    if let Some(in_match) = FOR_ALIAS_RE.captures(exp) {
-        let mut res = ForParseResult {
-            alias: STRIP_PARENS_RE.replace_all(in_match[1].trim(), "").to_string(),
-            for_value: in_match[2].trim().to_string(),
-            iterator1: None,
-            iterator2: None,
-        };
-
-        let alias = res.alias.clone();
-        if let Some(iterator_match) = FOR_ITERATOR_RE.captures(&alias) {
-            res.alias = iterator_match[1].trim().to_string();
-            res.iterator1 = Some(iterator_match[1].trim().to_string());
-            if let Some(iterator2) = iterator_match.get(2) {
-                res.iterator2 = Some(iterator2.as_str().trim().to_string());
-            }
-        }
-
-        Some(res)
-    } else {
-        None
-    }
-}
-
-fn process_if(mut el: ASTElement) -> ASTElement {
-    let vif_optional = get_and_remove_attr(
-        &mut el.token.attrs,
-        &mut el.ignored,
-        &UC_V_IF,
-        false,
-    );
-
-    if let Some(vif_value) = vif_optional {
-        el.if_val = Some(vif_value);
-    } else {
-        let v_else_optional = get_and_remove_attr(
-            &mut el.token.attrs,
-            &mut el.ignored,
-            &UC_V_ELSE,
-            false,
-        );
-
-        if v_else_optional.is_some() {
-            el.is_else = true
-        }
-
-        let v_else_if_optional = get_and_remove_attr(
-            &mut el.token.attrs,
-            &mut el.ignored,
-            &UC_V_ELSE_IF,
-            false,
-        );
-
-        if let Some(v_else_if_val) = v_else_if_optional {
-            el.if_val = Some(v_else_if_val);
-        }
-    }
-
-    el
-}
-
-fn process_once(mut el: ASTElement) -> ASTElement {
-    let v_once_optional = get_and_remove_attr(
-        &mut el.token.attrs,
-        &mut el.ignored,
-        &UC_V_ONCE,
-        false,
-    );
-
-    if v_once_optional.is_some() {
-        el.once = true
-    }
-
-    el
-}
-
-fn process_element(mut el: ASTElement) -> ASTElement {
-    el = process_key(el);
-
-    el
-}
-
-fn process_key(mut el: ASTElement) -> ASTElement {
-    let exp = get_binding_attr(&mut el.token.attrs, &mut el.ignored, &UC_KEY, false);
-
-    el
 }

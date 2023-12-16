@@ -1,11 +1,10 @@
 use std::cell::RefCell;
 use std::rc::{Rc, Weak};
-use rs_html_parser_tokens::{Token, TokenKind};
-use crate::ast_elements::{ASTElement, create_ast_element};
+use crate::ast_elements::{ASTElement};
 
 #[derive(Debug)]
 pub struct ASTNode<'a> {
-    pub element: ASTElement<'a>,
+    pub element: ASTElement,
     pub children: RefCell<Vec<Rc<ASTNode<'a>>>>,
     parent: RefCell<Weak<ASTNode<'a>>>,
 }
@@ -16,7 +15,7 @@ pub struct ASTTree<'a> {
 }
 
 impl <'a> ASTTree<'a> {
-    pub fn new(element: ASTElement<'a>) -> Self {
+    pub fn new(element: ASTElement) -> Self {
         ASTTree {
             root: Some(ASTNode {
                 element,
@@ -26,7 +25,7 @@ impl <'a> ASTTree<'a> {
         }
     }
 
-    pub fn create(&'a self, element: ASTElement<'a>, children: RefCell<Vec<Rc<ASTNode<'a>>>>) -> Rc<ASTNode<'a>> {
+    pub fn create(&'a self, element: ASTElement, children: RefCell<Vec<Rc<ASTNode<'a>>>>) -> Rc<ASTNode<'a>> {
         let rc = Rc::new(ASTNode {
             element,
             children,
