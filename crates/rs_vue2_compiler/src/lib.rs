@@ -1,21 +1,24 @@
 mod util;
-mod ast_elements;
-mod helpers;
 mod uni_codes;
 mod ast_tree;
 mod filter_parser;
+mod element_processor;
 
 #[macro_use]
 extern crate lazy_static;
 
+use std::cell::RefCell;
 use std::collections::VecDeque;
+use std::rc::Rc;
+use std::thread::current;
 use lazy_static::lazy_static;
 use regex::Regex;
 use rs_html_parser::{Parser, ParserOptions};
 use rs_html_parser_tokenizer::TokenizerOptions;
 use rs_html_parser_tokens::{Token, TokenKind};
-use crate::ast_elements::{ASTElement, create_ast_element};
-use crate::ast_tree::ASTTree;
+use unicase::Ascii;
+use crate::ast_tree::{ASTElement, ASTNode, ASTTree, create_ast_element};
+use crate::element_processor::process_element;
 use crate::uni_codes::{UC_TYPE, UC_V_FOR};
 use crate::util::{get_attribute, has_attribute};
 
@@ -68,11 +71,8 @@ fn is_forbidden_tag(el: &Token) -> bool {
     }
 }
 
-pub struct VueParser<'a> {
+pub struct VueParser {
     options: CompilerOptions,
-
-    stack: VecDeque<ASTElement>,
-    current_parent: Option<&'a ASTElement>,
 
     in_v_pre: bool,
     in_pre: bool,
@@ -87,12 +87,10 @@ const PARSER_OPTIONS: ParserOptions = ParserOptions {
     },
 };
 
-impl<'i> VueParser<'i> {
-    pub fn new(options: CompilerOptions) -> VueParser<'i> {
+impl VueParser {
+    pub fn new(options: CompilerOptions) -> VueParser {
         VueParser {
             options,
-            stack: Default::default(),
-            current_parent: None,
             in_v_pre: false,
             in_pre: false,
             warned: false,
@@ -128,20 +126,25 @@ impl<'i> VueParser<'i> {
         return false;
     }
 
-    pub fn parse(&'i mut self, template: &'i str) -> Option<ASTTree<'i>> {
+    pub fn parse(&mut self, template: &str) -> ASTTree {
         let parser = Parser::new(template, &PARSER_OPTIONS);
         let is_dev = self.options.dev;
-        let mut tree: Option<ASTTree> = None;
-        let mut stack: VecDeque<ASTElement> = Default::default();
-        let mut current_parent: Option<&ASTElement>;
+        let mut root_tree: ASTTree = ASTTree::new(is_dev);
+        let mut stack: VecDeque<usize> = VecDeque::new();
+        let mut current_parent_id = 0;
+        let mut is_root_set: bool = false;
 
         for token in parser {
             match token.kind {
                 TokenKind::OpenTag => {
-                    let mut element = create_ast_element(token);
+                    let node_rc = root_tree.create(
+                        create_ast_element(token, is_dev),
+                        current_parent_id
+                    );
+                    let mut node = node_rc.borrow_mut();
 
-                    if is_dev {
-                        if let Some(attrs) = &element.token.attrs {
+                     if is_dev {
+                        if let Some(attrs) = &node.el.token.attrs {
                             for (attr_key, _attr_value) in attrs {
                                 if INVALID_ATTRIBUTE_RE.find(&attr_key).is_some() {
                                     warn(
@@ -152,8 +155,8 @@ impl<'i> VueParser<'i> {
                         }
                     }
 
-                    if is_forbidden_tag(&element.token) && !self.options.is_ssr {
-                        element.forbidden = true;
+                    if is_forbidden_tag(&node.el.token) && !self.options.is_ssr {
+                        node.el.forbidden = true;
 
                         if is_dev {
                             // TODO: add tag
@@ -168,44 +171,33 @@ impl<'i> VueParser<'i> {
                     // TODO Apply pre-transforms
 
                     if !self.in_v_pre {
-                        element.process_pre();
-                        if element.pre {
+                        node.process_pre();
+                        if node.el.pre {
                             self.in_v_pre = true;
                         }
                     }
-                    if self.platform_is_pre_tag(&element.token.data) {
+                    if self.platform_is_pre_tag(&node.el.token.data) {
                         self.in_pre = true;
                     }
                     if self.in_v_pre {
-                        element.process_raw_attributes()
-                    } else if !element.processed {
-                        element.process_for();
-                        element.process_if();
-                        element.process_once();
+                        node.process_raw_attributes()
+                    } else if !node.el.processed {
+                        node.process_for();
+                        node.process_if();
+                        node.process_once();
                     }
 
-                    current_parent = Some(&element);
-
-                    match tree {
-                        None => {
-                            if is_dev {
-                                self.check_root_constraints(&element);
-                            }
-                            tree = Some(ASTTree::new(element));
-                        }
-                        Some(_) => {
-                            stack.push_back(element);
-                        }
-                    }
+                    stack.push_back(node.id);
                 },
                 TokenKind::CloseTag => {
-                    let el_option = self.stack.pop_back();
+                    let current_open_tag_id = stack.pop_back();
 
-                    if let Some(mut el) = el_option {
+                    if let Some(mut open_tag_id) = current_open_tag_id {
+                        let mut node = root_tree.get(open_tag_id).unwrap().borrow_mut();
                         // trim white space ??
 
-                        if !self.in_v_pre && !el.processed {
-                            el.process_element();
+                        if !self.in_v_pre && !node.el.processed {
+                            process_element(node);
                         }
                     }
                 },
@@ -218,6 +210,6 @@ impl<'i> VueParser<'i> {
             }
         }
 
-        tree
+        root_tree
     }
 }
