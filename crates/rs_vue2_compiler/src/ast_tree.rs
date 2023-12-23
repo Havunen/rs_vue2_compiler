@@ -1,8 +1,8 @@
 use std::cell::RefCell;
 use std::rc::{Rc, Weak};
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use rs_html_parser_tokenizer_tokens::QuoteType;
-use rs_html_parser_tokens::{Token, TokenKind};
+use rs_html_parser_tokens::Token;
 use rs_html_parser_tokens::TokenKind::ProcessingInstruction;
 use unicase_collections::unicase_btree_set::UniCaseBTreeSet;
 use crate::uni_codes::{UC_KEY, UC_V_ELSE, UC_V_ELSE_IF, UC_V_FOR, UC_V_IF, UC_V_ONCE, UC_V_PRE};
@@ -14,12 +14,17 @@ pub struct ASTElement {
     // rs_html_parser_tokens Token
     pub token: Token,
 
+    // internal helpers
+    pub is_dev: bool,
+
     // extra
     pub forbidden: bool,
     pub pre: bool,
     pub plain: bool,
     pub ignored: UniCaseBTreeSet,
     pub processed: bool,
+    pub ref_val: Option<String>,
+    pub ref_in_for: bool,
 
     pub key: Option<String>,
 
@@ -37,8 +42,7 @@ pub struct ASTElement {
 
     pub once: bool,
 
-    // internal helpers
-    pub is_dev: bool
+    pub scoped_slots: Option<(Box<str>, QuoteType)>,
 }
 
 
@@ -50,6 +54,7 @@ pub fn create_ast_element(token: Token, is_dev: bool) -> ASTElement {
         plain: false,
         ignored: Default::default(),
         processed: false,
+        ref_val: None,
         alias: None,
         for_value: None,
         iterator1: None,
@@ -61,7 +66,9 @@ pub fn create_ast_element(token: Token, is_dev: bool) -> ASTElement {
         once: false,
         key: None,
 
-        is_dev
+        is_dev,
+        ref_in_for: false,
+        scoped_slots: None,
     }
 }
 
@@ -293,7 +300,7 @@ impl ASTNode {
         if let Some(ref mut attrs) = self.el.token.attrs {
             if let Some(attr_value_option) = attrs.get(name) {
                 if !fully_remove {
-                    self.el.ignored.insert(name.clone());
+                    self.el.ignored.insert(name);
                 }
 
                 return attr_value_option;
@@ -343,5 +350,74 @@ impl ASTNode {
         }
 
         return self.get_raw_attr(&name);
+    }
+
+    pub fn process_element(&mut self) {
+        self.process_key();
+
+        // determine whether this is a plain element after
+        // removing structural attributes
+        self.el.plain = self.el.key.is_none() && self.el.scoped_slots.is_none() && self.el.token.attrs.is_none();
+
+        self.process_ref();
+    }
+
+    pub fn process_key(&mut self) {
+        let exp = self.get_binding_attr(&UC_KEY, false);
+
+        if !exp.is_empty() {
+            if self.el.is_dev {
+                if self.el.token.data.eq_ignore_ascii_case("template") {
+                    // self.get_raw_binding_attr(&UC_KEY).unwrap_or("".into()).to_string().as_str())
+                    warn("<template> cannot be keyed. Place the key on real elements instead. {}");
+                }
+
+                let has_iterator_1 = self.el.iterator1.is_some() && self.el.iterator1.as_ref().unwrap().eq(&exp);
+                let has_iterator_2 = self.el.iterator2.is_some() && self.el.iterator2.as_ref().unwrap().eq(&exp);
+
+                if self.el.for_value.is_some() {
+                    if has_iterator_1 || has_iterator_2 {
+                        {
+                            if let Some(parent) = self.parent.as_ref().unwrap().upgrade() {
+                                if parent.borrow().el.token.data.eq_ignore_ascii_case("transition-group") {
+                                    // getRawBindingAttr(el, 'key'),
+                                    warn(
+                                        r#"Do not use v-for index as key on <transition-group> children,
+                                    "this is the same as not using keys. "#
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+
+                self.el.key = Some(exp);
+            }
+        }
+    }
+    fn process_ref(&mut self) {
+        let ref_option = self.get_and_remove_attr("ref", false);
+
+        if let Some(ref_value) = ref_option {
+            self.el.ref_val = Some(ref_value.to_string());
+            self.el.ref_in_for = self.check_in_for();
+        }
+    }
+
+    pub fn check_in_for(&self) -> bool {
+        if self.el.for_value.is_some() {
+            return true;
+        }
+
+        let mut current_node = self.parent.as_ref().and_then(|parent_weak| parent_weak.upgrade());
+
+        while let Some(node) = current_node {
+            if node.borrow().el.for_value.is_some() {
+                return true;
+            }
+            current_node = node.borrow().parent.as_ref().and_then(|parent_weak| parent_weak.upgrade());
+        }
+
+        false
     }
 }

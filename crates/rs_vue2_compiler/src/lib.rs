@@ -2,23 +2,17 @@ mod util;
 mod uni_codes;
 mod ast_tree;
 mod filter_parser;
-mod element_processor;
 
 #[macro_use]
 extern crate lazy_static;
 
-use std::cell::RefCell;
 use std::collections::VecDeque;
-use std::rc::Rc;
-use std::thread::current;
 use lazy_static::lazy_static;
 use regex::Regex;
 use rs_html_parser::{Parser, ParserOptions};
 use rs_html_parser_tokenizer::TokenizerOptions;
 use rs_html_parser_tokens::{Token, TokenKind};
-use unicase::Ascii;
-use crate::ast_tree::{ASTElement, ASTNode, ASTTree, create_ast_element};
-use crate::element_processor::process_element;
+use crate::ast_tree::{ASTElement, ASTTree, create_ast_element};
 use crate::uni_codes::{UC_TYPE, UC_V_FOR};
 use crate::util::{get_attribute, has_attribute};
 
@@ -197,7 +191,7 @@ impl VueParser {
                         // trim white space ??
 
                         if !self.in_v_pre && !node.el.processed {
-                            process_element(node);
+                            node.process_element();
                         }
                     }
                 },
