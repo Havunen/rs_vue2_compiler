@@ -6,7 +6,7 @@ use rs_html_parser_tokens::Token;
 use rs_html_parser_tokens::TokenKind::ProcessingInstruction;
 use unicase_collections::unicase_btree_set::UniCaseBTreeSet;
 use crate::uni_codes::{UC_KEY, UC_V_ELSE, UC_V_ELSE_IF, UC_V_FOR, UC_V_IF, UC_V_ONCE, UC_V_PRE};
-use crate::{FOR_ALIAS_RE, FOR_ITERATOR_RE, STRIP_PARENS_RE, warn};
+use crate::{FOR_ALIAS_RE, FOR_ITERATOR_RE, SLOT_RE, STRIP_PARENS_RE, warn};
 use crate::filter_parser::parse_filters;
 
 #[derive(Debug)]
@@ -26,6 +26,8 @@ pub struct ASTElement {
     pub processed: bool,
     pub ref_val: Option<String>,
     pub ref_in_for: bool,
+
+    pub component: bool,
 
     pub attrs: Option<Vec<String>>,
     pub dynamic_attrs: Option<Vec<String>>,
@@ -474,7 +476,26 @@ impl ASTNode {
         // 2.6 v-slot syntax
         if self.el.new_slot_syntax {
             if self.el.token.data.eq_ignore_ascii_case("template") {
+                let slot_binding = self.get_and_remove_attr_by_regex(&SLOT_RE);
 
+                if slot_binding.is_some() {
+                    if self.el.is_dev {
+                        if self.el.slot_target.is_some() || self.el.slot_scope.is_some() {
+                            warn("Unexpected mixed usage of different slot syntaxes. (slot-target, slot-scope)");
+                        }
+                        if let Some(parent) = self.parent.as_ref().and_then(|parent_weak| parent_weak.upgrade()) {
+                            if parent.borrow().is_maybe_component() {
+                                warn("<template v-slot> can only appear at the root level inside the receiving component.");
+                            }
+                        }
+                    }
+                    /*
+                      const { name, dynamic } = getSlotName(slotBinding)
+                        el.slotTarget = name
+                        el.slotTargetDynamic = dynamic
+                        el.slotScope = slotBinding.value || emptySlotScopeToken // force it into a scoped slot for perf
+                     */
+                }
             }
         }
     }
@@ -504,5 +525,13 @@ impl ASTNode {
         }
 
         false
+    }
+
+    // TODO: Finish this
+    pub fn is_maybe_component(&self) -> bool {
+        self.el.component ||
+        self.has_raw_attr("is") ||
+        self.has_raw_attr("v-bind:is")
+        // !(self.el.token.attrs.attrsMap.is ? isReservedTag(el.attrsMap.is) : isReservedTag(el.tag))
     }
 }
