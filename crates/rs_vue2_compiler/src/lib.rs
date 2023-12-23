@@ -126,7 +126,6 @@ impl VueParser {
         let mut root_tree: ASTTree = ASTTree::new(is_dev);
         let mut stack: VecDeque<usize> = VecDeque::new();
         let mut current_parent_id = 0;
-        let mut is_root_set: bool = false;
 
         for token in parser {
             match token.kind {
@@ -181,6 +180,7 @@ impl VueParser {
                         node.process_once();
                     }
 
+                    current_parent_id = node.id;
                     stack.push_back(node.id);
                 },
                 TokenKind::CloseTag => {

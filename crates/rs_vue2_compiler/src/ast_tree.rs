@@ -14,8 +14,9 @@ pub struct ASTElement {
     // rs_html_parser_tokens Token
     pub token: Token,
 
-    // internal helpers
+    // TODO: internal helpers, move these somewhere else
     pub is_dev: bool,
+    pub new_slot_syntax: bool,
 
     // extra
     pub forbidden: bool,
@@ -25,6 +26,9 @@ pub struct ASTElement {
     pub processed: bool,
     pub ref_val: Option<String>,
     pub ref_in_for: bool,
+
+    pub attrs: Option<Vec<String>>,
+    pub dynamic_attrs: Option<Vec<String>>,
 
     pub key: Option<String>,
 
@@ -42,8 +46,11 @@ pub struct ASTElement {
 
     pub once: bool,
 
-    pub scoped_slots: Option<(Box<str>, QuoteType)>,
+    pub slot_name: Option<String>,
+    pub slot_target: Option<String>,
+    pub slot_target_dynamic: bool,
     pub slot_scope: Option<Box<str>>,
+    pub scoped_slots: Option<(Box<str>, QuoteType)>,
 }
 
 
@@ -65,12 +72,18 @@ pub fn create_ast_element(token: Token, is_dev: bool) -> ASTElement {
         else_if_val: None,
         is_else: false,
         once: false,
+        slot_name: None,
+        slot_target: None,
         key: None,
 
         is_dev,
         ref_in_for: false,
+        attrs: None,
         scoped_slots: None,
         slot_scope: None,
+        dynamic_attrs: None,
+        slot_target_dynamic: false,
+        new_slot_syntax: false,
     }
 }
 
@@ -116,7 +129,7 @@ impl ASTTree {
 
     pub fn create(&mut self, element: ASTElement, parent_id: usize) -> Rc<RefCell<ASTNode>> {
         self.counter += 1;
-        let mut parent = self.get(parent_id).cloned().unwrap();
+        let parent = self.get(parent_id).cloned().unwrap();
 
         let new_node = Rc::new(RefCell::new(ASTNode {
             id: self.counter,
@@ -126,23 +139,6 @@ impl ASTTree {
         }));
 
         parent.borrow_mut().children.push(Rc::clone(&new_node));
-
-        // let parent = self.nodes.get(&parent_id).cloned();
-        // let node = Rc::new(RefCell::new(ASTNode {
-        //     id: self.counter,
-        //     el: element,
-        //     children: Vec::new(),
-        //     parent: parent.as_ref().map(|p| Rc::downgrade(p)),
-        // }));
-        //
-        // self.counter += 1;
-        // self.nodes.insert(self.counter, Rc::clone(&node));
-        //
-        // if let Some(parent) = parent {
-        //     parent.children.push(Rc::clone(&node));
-        // }
-        //
-        // Rc::clone(&node)
 
         new_node
     }
@@ -257,6 +253,31 @@ impl ASTNode {
         if v_once_optional.is_some() {
             self.el.once = true
         }
+    }
+
+    pub fn get_and_remove_attr_by_regex(&mut self, name: &'static regex::Regex) -> Option<&Box<str>> {
+        for (attr_name, attr_value) in self.el.token.attrs.as_ref().unwrap().iter() {
+            if name.is_match(attr_name) {
+                self.el.ignored.insert(attr_name.clone());
+
+                if let Some((attr_value, _attr_quote)) = attr_value {
+                    return Some(attr_value);
+                }
+            }
+        }
+
+        return None;
+    }
+
+    pub fn has_raw_attr(
+        &self,
+        name: &str,
+    ) -> bool {
+        if let Some(ref attrs) = self.el.token.attrs {
+            return attrs.contains_key(name);
+        }
+
+        return false;
     }
 
     pub fn get_raw_attr(
@@ -406,7 +427,7 @@ impl ASTNode {
         }
     }
 
-    pub fn process_slot_content(&mut self) {
+    pub unsafe fn process_slot_content(&mut self) {
         let mut slot_scope: Option<Box<str>> = None;
 
         if self.el.token.data.eq_ignore_ascii_case("template") {
@@ -415,11 +436,56 @@ impl ASTNode {
             if self.el.is_dev && slot_scope.is_some() {
                 warn("the \"scope\" attribute for scoped slots have been deprecated and replaced by \"slot-scope\" since 2.5. The new \"slot-scope\" attribute can also be used on plain elements in addition to <template> to denote scoped slots.");
             }
-            self.el.slot_scope = (if slot_scope.is_some() {
+            self.el.slot_scope = if slot_scope.is_some() {
                 slot_scope
             } else {
                 self.get_and_remove_attr("slot-scope", false).cloned()
-            });
+            };
+        } else {
+            slot_scope = self.get_and_remove_attr("slot-scope", false).cloned();
+
+            if slot_scope.is_some() {
+                if self.get_and_remove_attr("slot-scope", false).is_some() {
+                    if self.el.is_dev && self.has_raw_attr("v-for") {
+                        warn("Ambiguous combined usage of slot-scope and v-for on <{TODO}> (v-for takes higher priority). Use a wrapper <template> for the scoped slot to make it clearer.");
+                    }
+                }
+            }
+
+            self.el.slot_scope = slot_scope;
+        }
+
+        // slot="xxx"
+        let slot_target = self.get_and_remove_attr("slot", false).cloned();
+        if let Some(slot_target_value) = slot_target {
+            self.el.slot_target = if slot_target_value.is_empty() {
+                Some("default".to_string())
+            } else {
+                Some(slot_target_value.to_string())
+            };
+            self.el.slot_target_dynamic = self.has_raw_attr("slot") || self.has_raw_attr("v-bind:slot");
+            // preserve slot as an attribute for native shadow DOM compat
+            // only for non-scoped slots.
+            if !self.el.token.data.eq_ignore_ascii_case("template") && !self.el.slot_scope.is_some() {
+                self.insert_into_attrs("slot", (slot_target_value, QuoteType::NoValue));
+            }
+        }
+
+        // 2.6 v-slot syntax
+        if self.el.new_slot_syntax {
+            if self.el.token.data.eq_ignore_ascii_case("template") {
+
+            }
+        }
+    }
+
+    pub fn insert_into_attrs(&mut self, key: &str, value: (Box<str>, QuoteType)) {
+        if let Some(ref mut attrs) = self.el.token.attrs {
+            attrs.insert(key, Some(value));
+        } else {
+            let mut new_attrs = unicase_collections::unicase_btree_map::UniCaseBTreeMap::new();
+            new_attrs.insert(key, Some(value));
+            self.el.token.attrs = Some(new_attrs);
         }
     }
 
