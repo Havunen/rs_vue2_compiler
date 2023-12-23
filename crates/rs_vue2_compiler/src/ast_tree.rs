@@ -43,6 +43,7 @@ pub struct ASTElement {
     pub once: bool,
 
     pub scoped_slots: Option<(Box<str>, QuoteType)>,
+    pub slot_scope: Option<Box<str>>,
 }
 
 
@@ -69,6 +70,7 @@ pub fn create_ast_element(token: Token, is_dev: bool) -> ASTElement {
         is_dev,
         ref_in_for: false,
         scoped_slots: None,
+        slot_scope: None,
     }
 }
 
@@ -401,6 +403,23 @@ impl ASTNode {
         if let Some(ref_value) = ref_option {
             self.el.ref_val = Some(ref_value.to_string());
             self.el.ref_in_for = self.check_in_for();
+        }
+    }
+
+    pub fn process_slot_content(&mut self) {
+        let mut slot_scope: Option<Box<str>> = None;
+
+        if self.el.token.data.eq_ignore_ascii_case("template") {
+            slot_scope = self.get_and_remove_attr("scope", false).cloned();
+
+            if self.el.is_dev && slot_scope.is_some() {
+                warn("the \"scope\" attribute for scoped slots have been deprecated and replaced by \"slot-scope\" since 2.5. The new \"slot-scope\" attribute can also be used on plain elements in addition to <template> to denote scoped slots.");
+            }
+            self.el.slot_scope = (if slot_scope.is_some() {
+                slot_scope
+            } else {
+                self.get_and_remove_attr("slot-scope", false).cloned()
+            });
         }
     }
 
