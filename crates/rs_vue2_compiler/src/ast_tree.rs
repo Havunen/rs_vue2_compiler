@@ -7,8 +7,10 @@ use rs_html_parser_tokens::TokenKind::ProcessingInstruction;
 use unicase_collections::unicase_btree_map::UniCaseBTreeMap;
 use unicase_collections::unicase_btree_set::UniCaseBTreeSet;
 use crate::uni_codes::{UC_KEY, UC_V_ELSE, UC_V_ELSE_IF, UC_V_FOR, UC_V_IF, UC_V_ONCE, UC_V_PRE};
-use crate::{FOR_ALIAS_RE, FOR_ITERATOR_RE, SLOT_RE, STRIP_PARENS_RE, warn};
+use crate::{DYNAMIC_ARG_RE, FOR_ALIAS_RE, FOR_ITERATOR_RE, SLOT_RE, STRIP_PARENS_RE, warn};
 use crate::filter_parser::parse_filters;
+
+pub const EMPTY_SLOT_SCOPE_TOKEN: &'static str = "_empty_";
 
 #[derive(Debug)]
 pub struct ASTElement {
@@ -259,13 +261,13 @@ impl ASTNode {
         }
     }
 
-    pub fn get_and_remove_attr_by_regex(&mut self, name: &'static regex::Regex) -> Option<&Box<str>> {
+    pub fn get_and_remove_attr_by_regex(&mut self, name: &Regex) -> Option<Box<str>> {
         for (attr_name, attr_value) in self.el.token.attrs.as_ref().unwrap().iter() {
             if name.is_match(attr_name) {
                 self.el.ignored.insert(attr_name.clone());
 
                 if let Some((attr_value, _attr_quote)) = attr_value {
-                    return Some(attr_value);
+                    return Some(attr_value.clone());
                 }
             }
         }
@@ -431,13 +433,14 @@ impl ASTNode {
         }
     }
 
-    pub unsafe fn process_slot_content(&mut self) {
-        let mut slot_scope: Option<Box<str>> = None;
+    pub fn process_slot_content(&mut self) {
+        let is_dev = self.el.is_dev;
+        let slot_scope: Option<Box<str>>;
 
         if self.el.token.data.eq_ignore_ascii_case("template") {
             slot_scope = self.get_and_remove_attr("scope", false).cloned();
 
-            if self.el.is_dev && slot_scope.is_some() {
+            if is_dev && slot_scope.is_some() {
                 warn("the \"scope\" attribute for scoped slots have been deprecated and replaced by \"slot-scope\" since 2.5. The new \"slot-scope\" attribute can also be used on plain elements in addition to <template> to denote scoped slots.");
             }
             self.el.slot_scope = if slot_scope.is_some() {
@@ -450,7 +453,7 @@ impl ASTNode {
 
             if slot_scope.is_some() {
                 if self.get_and_remove_attr("slot-scope", false).is_some() {
-                    if self.el.is_dev && self.has_raw_attr("v-for") {
+                    if is_dev && self.has_raw_attr("v-for") {
                         warn("Ambiguous combined usage of slot-scope and v-for on <{TODO}> (v-for takes higher priority). Use a wrapper <template> for the scoped slot to make it clearer.");
                     }
                 }
@@ -480,9 +483,12 @@ impl ASTNode {
             if self.el.token.data.eq_ignore_ascii_case("template") {
                 let slot_binding = self.get_and_remove_attr_by_regex(&SLOT_RE);
 
-                if slot_binding.is_some() {
-                    if self.el.is_dev {
-                        if self.el.slot_target.is_some() || self.el.slot_scope.is_some() {
+                if let Some(slot_binding_val) = slot_binding {
+                    if is_dev {
+                        let slot_target = self.el.slot_target.clone();
+                        let slot_scope = self.el.slot_scope.clone();
+
+                        if slot_target.is_some() || slot_scope.is_some() {
                             warn("Unexpected mixed usage of different slot syntaxes. (slot-target, slot-scope)");
                         }
                         if let Some(parent) = self.parent.as_ref().and_then(|parent_weak| parent_weak.upgrade()) {
@@ -491,12 +497,10 @@ impl ASTNode {
                             }
                         }
                     }
-                    /*
-                      const { name, dynamic } = getSlotName(slotBinding)
-                        el.slotTarget = name
-                        el.slotTargetDynamic = dynamic
-                        el.slotScope = slotBinding.value || emptySlotScopeToken // force it into a scoped slot for perf
-                     */
+                    let slot_name = get_slot_name(&*slot_binding_val);
+                    self.el.slot_target = Some(slot_name.name);
+                    self.el.slot_target_dynamic = slot_name.dynamic;
+                    self.el.slot_scope = Some(if slot_binding_val.is_empty() { Box::from(EMPTY_SLOT_SCOPE_TOKEN) } else { slot_binding_val.clone() });
                 }
             }
         }
@@ -535,5 +539,40 @@ impl ASTNode {
         self.has_raw_attr("is") ||
         self.has_raw_attr("v-bind:is")
         // !(self.el.token.attrs.attrsMap.is ? isReservedTag(el.attrsMap.is) : isReservedTag(el.tag))
+    }
+}
+
+use regex::Regex;
+
+#[derive(Debug)]
+pub struct SlotName {
+    name: String,
+    dynamic: bool,
+}
+
+pub fn get_slot_name(binding: &str) -> SlotName {
+    let mut name = SLOT_RE.replace_all(binding, "").to_string();
+
+    if name.is_empty() {
+        if !binding.starts_with('#') {
+            name = "default".to_string();
+        } else {
+            // TODO: warn in debug only
+            println!("v-slot shorthand syntax requires a slot name: {}", binding);
+        }
+    }
+
+    if DYNAMIC_ARG_RE.is_match(&name) {
+        // dynamic [name]
+        SlotName {
+            name: name[1..name.len() - 1].to_string(),
+            dynamic: true,
+        }
+    } else {
+        // static name
+        SlotName {
+            name: format!("\"{}\"", name),
+            dynamic: false,
+        }
     }
 }
