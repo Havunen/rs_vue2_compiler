@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use rs_html_parser_tokenizer_tokens::QuoteType;
 use rs_html_parser_tokens::Token;
 use rs_html_parser_tokens::TokenKind::ProcessingInstruction;
+use unicase_collections::unicase_btree_map::UniCaseBTreeMap;
 use unicase_collections::unicase_btree_set::UniCaseBTreeSet;
 use crate::uni_codes::{UC_KEY, UC_V_ELSE, UC_V_ELSE_IF, UC_V_FOR, UC_V_IF, UC_V_ONCE, UC_V_PRE};
 use crate::{FOR_ALIAS_RE, FOR_ITERATOR_RE, SLOT_RE, STRIP_PARENS_RE, warn};
@@ -80,6 +81,7 @@ pub fn create_ast_element(token: Token, is_dev: bool) -> ASTElement {
 
         is_dev,
         ref_in_for: false,
+        component: false,
         attrs: None,
         scoped_slots: None,
         slot_scope: None,
@@ -504,7 +506,7 @@ impl ASTNode {
         if let Some(ref mut attrs) = self.el.token.attrs {
             attrs.insert(key, Some(value));
         } else {
-            let mut new_attrs = unicase_collections::unicase_btree_map::UniCaseBTreeMap::new();
+            let mut new_attrs = UniCaseBTreeMap::new();
             new_attrs.insert(key, Some(value));
             self.el.token.attrs = Some(new_attrs);
         }
