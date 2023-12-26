@@ -1,9 +1,9 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::{Rc, Weak};
 use std::collections::HashMap;
 use rs_html_parser_tokenizer_tokens::QuoteType;
 use rs_html_parser_tokens::Token;
-use rs_html_parser_tokens::TokenKind::ProcessingInstruction;
+use rs_html_parser_tokens::TokenKind::{OpenTag, ProcessingInstruction};
 use unicase_collections::unicase_btree_map::UniCaseBTreeMap;
 use unicase_collections::unicase_btree_set::UniCaseBTreeSet;
 use crate::uni_codes::{UC_KEY, UC_V_ELSE, UC_V_ELSE_IF, UC_V_FOR, UC_V_IF, UC_V_ONCE, UC_V_PRE};
@@ -55,7 +55,7 @@ pub struct ASTElement {
     pub slot_target: Option<String>,
     pub slot_target_dynamic: bool,
     pub slot_scope: Option<Box<str>>,
-    pub scoped_slots: Option<(Box<str>, QuoteType)>,
+    pub scoped_slots: Option<UniCaseBTreeMap<Rc<RefCell<ASTNode>>>>,
 }
 
 
@@ -104,7 +104,7 @@ pub struct ASTNode {
 #[derive(Debug)]
 pub struct ASTTree {
     pub root: Rc<RefCell<ASTNode>>,
-    counter: usize,
+    counter: Cell<usize>,
     nodes: HashMap<usize, Rc<RefCell<ASTNode>>>,
 }
 
@@ -123,7 +123,7 @@ impl ASTTree {
         }));
 
         let mut tree = ASTTree {
-            counter: 0,
+            counter: Cell::new(0),
             root: Rc::clone(&node),
             nodes: Default::default(),
         };
@@ -133,12 +133,12 @@ impl ASTTree {
         return tree;
     }
 
-    pub fn create(&mut self, element: ASTElement, parent_id: usize) -> Rc<RefCell<ASTNode>> {
-        self.counter += 1;
+    pub fn create(&self, element: ASTElement, parent_id: usize) -> Rc<RefCell<ASTNode>> {
+        let new_id = self.counter.get() + 1;
         let parent = self.get(parent_id).cloned().unwrap();
 
         let new_node = Rc::new(RefCell::new(ASTNode {
-            id: self.counter,
+            id: new_id,
             el: element,
             parent: Some(Rc::downgrade(&parent)),
             children: vec![]
@@ -381,7 +381,7 @@ impl ASTNode {
         return self.get_raw_attr(&name);
     }
 
-    pub fn process_element(&mut self) {
+    pub fn process_element(&mut self, tree: &ASTTree) {
         self.process_key();
 
         // determine whether this is a plain element after
@@ -389,6 +389,7 @@ impl ASTNode {
         self.el.plain = self.el.key.is_none() && self.el.scoped_slots.is_none() && self.el.token.attrs.is_none();
 
         self.process_ref();
+        self.process_slot_content(tree);
     }
 
     pub fn process_key(&mut self) {
@@ -433,7 +434,7 @@ impl ASTNode {
         }
     }
 
-    pub fn process_slot_content(&mut self) {
+    pub fn process_slot_content(&mut self, tree: &ASTTree) {
         let is_dev = self.el.is_dev;
         let slot_scope: Option<Box<str>>;
 
@@ -501,6 +502,64 @@ impl ASTNode {
                     self.el.slot_target = Some(slot_name.name);
                     self.el.slot_target_dynamic = slot_name.dynamic;
                     self.el.slot_scope = Some(if slot_binding_val.is_empty() { Box::from(EMPTY_SLOT_SCOPE_TOKEN) } else { slot_binding_val.clone() });
+                }
+            } else {
+                let slot_binding = self.get_and_remove_attr_by_regex(&SLOT_RE);
+
+                if let Some(slot_binding_val) = slot_binding {
+                    if is_dev {
+                        if !self.is_maybe_component() {
+                            warn("v-slot can only be used on components or <template>.")
+                        }
+                        if self.el.slot_scope.is_some() || self.el.slot_target.is_some() {
+                            warn("Unexpected mixed usage of different slot syntaxes. (slot-scope, slot)");
+                        }
+                        if self.el.scoped_slots.is_some() {
+                            warn("To avoid scope ambiguity, the default slot should also use <template> syntax when there are other named slots.");
+                        }
+                    }
+                    let mut slots = if self.el.scoped_slots.is_some() {
+                        self.el.scoped_slots.as_mut().unwrap()
+                    } else {
+                        self.el.scoped_slots = Some(UniCaseBTreeMap::new());
+                        self.el.scoped_slots.as_mut().unwrap()
+                    };
+
+                    let slot_name = get_slot_name(&*slot_binding_val);
+                    let mut slot_container = tree.create(
+                        create_ast_element(Token {
+                            kind: OpenTag,
+                            data: "template".into(),
+                            attrs: None,
+                            is_implied: false,
+                        }, is_dev),
+                        self.id
+                    );
+                    let mut slot_container_node = slot_container.borrow_mut();
+
+                    slot_container_node.el.slot_target = Some(slot_name.name.to_string());
+                    slot_container_node.el.slot_target_dynamic = slot_name.dynamic;
+
+                    // Convert self to a Weak reference
+                    let parent = tree.get(self.id).cloned().unwrap();
+
+                    slot_container_node.children = self.children.iter().map(|child| Rc::clone(child)).filter_map(|child_rc| {
+                        let mut child = child_rc.borrow_mut();
+                        if child.el.slot_scope.is_none() {
+                            child.parent = Some(Rc::downgrade(&parent));
+                            Some(Rc::clone(&child_rc))
+                        } else {
+                            None
+                        }
+                    }).collect::<Vec<_>>();
+                    slot_container_node.el.slot_scope = Some(if slot_binding_val.is_empty() { Box::from(EMPTY_SLOT_SCOPE_TOKEN) } else { slot_binding_val.clone() });
+                    drop(slot_container_node);
+                    slots.insert(slot_name.name.to_string(), slot_container);
+
+                    // remove children as they are returned from scopedSlots now
+                    self.children = vec![];
+                    // mark el non-plain so data gets generated
+                    self.el.plain = false;
                 }
             }
         }

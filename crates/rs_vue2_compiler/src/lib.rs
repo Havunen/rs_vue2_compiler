@@ -191,7 +191,7 @@ impl VueParser {
                         // trim white space ??
 
                         if !self.in_v_pre && !node.el.processed {
-                            node.process_element();
+                            node.process_element(&root_tree);
                         }
                     }
                 },
