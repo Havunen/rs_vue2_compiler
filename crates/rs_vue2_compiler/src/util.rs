@@ -32,3 +32,8 @@ pub fn get_attribute<'a>(token: &'a Token, str: &str) -> &'a Option<(Box<str>, Q
 pub fn is_pre_tag_default(tag: &str) -> bool {
     tag.eq_ignore_ascii_case("pre")
 }
+
+
+pub fn prepend_modifier_marker(symbol: char, name: &str, dynamic: bool) -> String {
+    return if dynamic { format!("_p({}, \"{}\")", name, symbol) } else { format!("{}{}", symbol, name) }
+}

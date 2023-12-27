@@ -2,6 +2,8 @@ mod util;
 mod uni_codes;
 mod ast_tree;
 mod filter_parser;
+mod helpers;
+mod directives_model;
 
 #[macro_use]
 extern crate lazy_static;
@@ -29,6 +31,8 @@ lazy_static! {
     static ref SLOT_RE: Regex = Regex::new(r"^v-slot(:|$)|^#").unwrap();
     static ref LINE_BREAK_RE: Regex = Regex::new(r"[\r\n]").unwrap();
     static ref WHITESPACE_RE: Regex = Regex::new(r"[ \f\t\r\n]+").unwrap();
+    static ref DIR_RE: Regex = Regex::new(r"^(v-|@|:|#)").unwrap();
+    static ref ON_RE: Regex = Regex::new(r"^@|^v-on:").unwrap();
 }
 
 
@@ -123,7 +127,7 @@ impl VueParser {
     pub fn parse(&mut self, template: &str) -> ASTTree {
         let parser = Parser::new(template, &PARSER_OPTIONS);
         let is_dev = self.options.dev;
-        let mut root_tree: ASTTree = ASTTree::new(is_dev);
+        let root_tree: ASTTree = ASTTree::new(is_dev);
         let mut stack: VecDeque<usize> = VecDeque::new();
         let mut current_parent_id = 0;
 
@@ -186,7 +190,7 @@ impl VueParser {
                 TokenKind::CloseTag => {
                     let current_open_tag_id = stack.pop_back();
 
-                    if let Some(mut open_tag_id) = current_open_tag_id {
+                    if let Some(open_tag_id) = current_open_tag_id {
                         let mut node = root_tree.get(open_tag_id).unwrap().borrow_mut();
                         // trim white space ??
 
