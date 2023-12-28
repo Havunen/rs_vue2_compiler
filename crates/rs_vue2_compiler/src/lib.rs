@@ -8,11 +8,13 @@ mod directives_model;
 extern crate lazy_static;
 
 use std::collections::VecDeque;
+use std::rc::Rc;
 use lazy_static::lazy_static;
 use regex::Regex;
 use rs_html_parser::{Parser, ParserOptions};
 use rs_html_parser_tokenizer::TokenizerOptions;
 use rs_html_parser_tokens::{Token, TokenKind};
+use unicase_collections::unicase_btree_map::UniCaseBTreeMap;
 use crate::ast_tree::{ASTElement, ASTTree, create_ast_element, IfCondition};
 use crate::uni_codes::{UC_TYPE, UC_V_FOR};
 use crate::util::{get_attribute, has_attribute};
@@ -218,6 +220,43 @@ impl VueParser {
                         if /* current_parent exists always && */ !node.el.forbidden {
                             if node.el.else_if_val.is_some() || node.el.is_else {
                                 node.process_if_conditions(current_parent.children.as_mut());
+                            } else {
+                                if node.el.slot_scope.is_some() {
+                                    // scoped slot
+                                    // keep it in the children list so that v-else(-if) conditions can
+                                    // find it as the prev node.
+                                    let slot_target = node.el.slot_target.clone();
+                                    let id = node.id;
+                                    let mut scoped_slots = node.el.scoped_slots.get_or_insert(UniCaseBTreeMap::new());
+                                    let name = if let Some(slot_target) = slot_target {
+                                        slot_target
+                                    } else {
+                                        "\"default\"".to_string()
+                                    };
+
+                                    scoped_slots.insert(name, root_tree.get(id).unwrap().clone());
+
+                                    // TODO: This is most likely unnecessary, verify later
+                                    if let Some(parent) = node.parent.as_ref().unwrap().upgrade() {
+                                        if parent.borrow().id != current_parent_id {
+                                            println!("parent id does not match current parent id");
+                                        }
+                                    }
+
+                                    // final children cleanup
+                                    // filter out scoped slots
+                                    node.children = node.children.iter().map(|child| Rc::clone(child)).filter_map(|child_rc| {
+                                        let child = child_rc.borrow_mut();
+                                        if child.el.slot_scope.is_none() {
+                                            Some(Rc::clone(&child_rc))
+                                        } else {
+                                            None
+                                        }
+                                    }).collect::<Vec<_>>();
+
+                                    // remove trailing whitespace node again
+
+                                }
                             }
                         }
                     }

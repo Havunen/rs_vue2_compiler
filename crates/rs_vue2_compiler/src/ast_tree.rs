@@ -594,7 +594,7 @@ impl ASTNode {
         let slot_target = self.get_and_remove_attr("slot", false).cloned();
         if let Some(slot_target_value) = slot_target {
             self.el.slot_target = if slot_target_value.is_empty() {
-                Some("default".to_string())
+                Some("\"default\"".to_string())
             } else {
                 Some(slot_target_value.to_string())
             };
