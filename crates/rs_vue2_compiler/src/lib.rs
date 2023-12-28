@@ -4,10 +4,12 @@ mod filter_parser;
 mod helpers;
 mod uni_codes;
 mod util;
+mod text_parser;
 
 extern crate lazy_static;
 
-use crate::ast_tree::{create_ast_element, ASTElement, ASTElementKind, ASTTree, IfCondition};
+use std::cell::{RefCell, RefMut};
+use crate::ast_tree::{create_ast_element, ASTElement, ASTElementKind, ASTTree, IfCondition, ASTNode};
 use crate::uni_codes::{UC_TYPE, UC_V_FOR};
 use crate::util::{get_attribute, has_attribute};
 use lazy_static::lazy_static;
@@ -18,6 +20,7 @@ use rs_html_parser_tokens::{Token, TokenKind};
 use std::collections::VecDeque;
 use std::rc::Rc;
 use unicase_collections::unicase_btree_map::UniCaseBTreeMap;
+use crate::text_parser::parse_text;
 
 lazy_static! {
     static ref INVALID_ATTRIBUTE_RE: Regex = Regex::new(r##"/[\s"'<>\/=]/"##).unwrap();
@@ -322,11 +325,33 @@ impl VueParser {
                     // };
 
                     if !token.data.is_empty() {
-                        let node_rc = root_tree.create(
-                            create_ast_element(token, ASTElementKind::Text, is_dev),
-                            current_parent_id,
-                        );
-                        root_tree.set(node_rc.borrow().id, node_rc.clone());
+                        let parse_text_result: Option<(String, Vec<String>)>;
+
+                        if !self.in_v_pre {
+                            parse_text_result = parse_text(&*token.data, None);
+                        } else {
+                            parse_text_result = None;
+                        }
+
+                        let node_rc: Rc<RefCell<ASTNode>>;
+                        let mut node: RefMut<ASTNode>;
+                        if let Some(expression_text) = parse_text_result {
+                            node_rc = root_tree.create(
+                                create_ast_element(token, ASTElementKind::Expression, is_dev),
+                                current_parent_id,
+                            );
+                            node = node_rc.borrow_mut();
+                            node.el.expression = Some(expression_text.0);
+                            node.el.tokens = Some(expression_text.1);
+                        } else {
+                            node_rc = root_tree.create(
+                                create_ast_element(token, ASTElementKind::Text, is_dev),
+                                current_parent_id,
+                            );
+                            node = node_rc.borrow_mut();
+                        }
+
+                        root_tree.set(node.id, node_rc.clone());
                         // if !self.in_pre && self.whitespace_option.as_ref().unwrap() == "condense" {
                         //     // condense consecutive whitespaces into single space
                         //     text = text.replace(whitespace_re, " ");

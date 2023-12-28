@@ -63,6 +63,10 @@ pub struct ASTElement {
     // rs_html_parser_tokens Token
     pub token: Token,
 
+    pub expression: Option<String>,
+    pub tokens: Option<Vec<String>>,
+
+
     // TODO: internal helpers, move these somewhere else
     pub is_dev: bool,
     pub new_slot_syntax: bool,
@@ -118,6 +122,7 @@ pub fn create_ast_element(token: Token, kind: ASTElementKind, is_dev: bool) -> A
     ASTElement {
         kind,
         token,
+        expression: None,
         forbidden: false,
         pre: false,
         plain: false,
@@ -153,6 +158,7 @@ pub fn create_ast_element(token: Token, kind: ASTElementKind, is_dev: bool) -> A
         directives: None,
         events: None,
         native_events: None,
+        tokens: None,
     }
 }
 
