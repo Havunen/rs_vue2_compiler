@@ -9,13 +9,14 @@ extern crate lazy_static;
 
 use std::collections::VecDeque;
 use std::rc::Rc;
+use std::thread::current;
 use lazy_static::lazy_static;
 use regex::Regex;
 use rs_html_parser::{Parser, ParserOptions};
 use rs_html_parser_tokenizer::TokenizerOptions;
 use rs_html_parser_tokens::{Token, TokenKind};
 use unicase_collections::unicase_btree_map::UniCaseBTreeMap;
-use crate::ast_tree::{ASTElement, ASTTree, create_ast_element, IfCondition};
+use crate::ast_tree::{ASTElement, ASTElementKind, ASTTree, create_ast_element, IfCondition};
 use crate::uni_codes::{UC_TYPE, UC_V_FOR};
 use crate::util::{get_attribute, has_attribute};
 
@@ -136,7 +137,7 @@ impl VueParser {
             match token.kind {
                 TokenKind::OpenTag => {
                     let node_rc = root_tree.create(
-                        create_ast_element(token, is_dev),
+                        create_ast_element(token, ASTElementKind::Element, is_dev),
                         current_parent_id
                     );
                     let mut node = node_rc.borrow_mut();
@@ -256,12 +257,94 @@ impl VueParser {
 
                                     // remove trailing whitespace node again
 
+                                    if (node.el.pre) {
+                                        self.in_v_pre = false
+                                    }
+                                    if self.platform_is_pre_tag(&node.el.token.data) {
+                                        self.in_pre = false
+                                    }
+
+                                    // apply post-transforms
+                                    // for (let i = 0; i < postTransforms.length; i++) {
+                                    //     postTransforms[i](element, options)
+                                    // }
                                 }
                             }
                         }
                     }
                 },
-                TokenKind::Text => {}
+                TokenKind::Comment => {
+                  // TODO: Implement comments
+                },
+                TokenKind::Text => {
+                    if current_parent_id == 0 {
+                        if is_dev {
+                            // TODO: Simplified error msg
+                            warn("text outside root element will be ignored..");
+                        }
+
+                        continue;
+                    }
+
+                    // let children = &mut self.current_parent.as_mut().unwrap().children;
+                    // let mut text = if self.in_pre || text.trim().is_empty() {
+                    //     if is_text_tag(self.current_parent.as_ref().unwrap()) {
+                    //         text
+                    //     } else {
+                    //         decode_html_cached(text)
+                    //     }
+                    // } else if !children.is_empty() {
+                    //     // remove the whitespace-only node right after an opening tag
+                    //     String::new()
+                    // } else if self.whitespace_option.is_some() {
+                    //     match self.whitespace_option.as_ref().unwrap().as_str() {
+                    //         "condense" => {
+                    //             // in condense mode, remove the whitespace node if it contains
+                    //             // line break, otherwise condense to a single space
+                    //             if text.contains('\n') { String::new() } else { " ".to_string() }
+                    //         },
+                    //         _ => " ".to_string(),
+                    //     }
+                    // } else {
+                    //     if self.preserve_whitespace { " ".to_string() } else { String::new() }
+                    // };
+
+                    if !token.data.is_empty() {
+                        let node_rc = root_tree.create(
+                            create_ast_element(token, ASTElementKind::Text, is_dev),
+                            current_parent_id
+                        );
+                        // if !self.in_pre && self.whitespace_option.as_ref().unwrap() == "condense" {
+                        //     // condense consecutive whitespaces into single space
+                        //     text = text.replace(whitespace_re, " ");
+                        // }
+                        // let mut child: Option<ASTNode> = None;
+                        // if !self.in_v_pre && text != " " {
+                        //     if let Some(res) = parse_text(text.clone(), self.delimiters.clone()) {
+                        //         child = Some(ASTNode {
+                        //             node_type: 2,
+                        //             expression: Some(res.expression),
+                        //             tokens: Some(res.tokens),
+                        //             text: Some(text.clone()),
+                        //             ..Default::default()
+                        //         });
+                        //     }
+                        // } else if text != " " || children.is_empty() || children.last().unwrap().text.as_ref().unwrap() != " " {
+                        //     child = Some(ASTNode {
+                        //         node_type: 3,
+                        //         text: Some(text.clone()),
+                        //         ..Default::default()
+                        //     });
+                        // }
+                        // if let Some(mut child_node) = child {
+                        //     if cfg!(debug_assertions) && self.options.output_source_range {
+                        //         child_node.start = start;
+                        //         child_node.end = end;
+                        //     }
+                        //     children.push(child_node);
+                        // }
+                    }
+                }
                 _ => {
                     todo!("missing implementation")
                 }

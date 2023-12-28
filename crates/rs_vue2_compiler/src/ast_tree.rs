@@ -48,6 +48,14 @@ pub struct IfCondition {
 }
 
 #[derive(Debug)]
+pub enum ASTElementKind {
+    Root = 0,
+    Element = 1,
+    Expression = 2,
+    Text = 3
+}
+
+#[derive(Debug)]
 pub struct ASTElement {
     // rs_html_parser_tokens Token
     pub token: Token,
@@ -99,12 +107,14 @@ pub struct ASTElement {
     pub slot_target_dynamic: bool,
     pub slot_scope: Option<Box<str>>,
     pub scoped_slots: Option<UniCaseBTreeMap<Rc<RefCell<ASTNode>>>>,
-    pub has_bindings: bool
+    pub has_bindings: bool,
+    pub kind: ASTElementKind,
 }
 
 
-pub fn create_ast_element(token: Token, is_dev: bool) -> ASTElement {
+pub fn create_ast_element(token: Token, kind: ASTElementKind, is_dev: bool) -> ASTElement {
     ASTElement {
+        kind,
         token,
         forbidden: false,
         pre: false,
@@ -168,7 +178,7 @@ impl ASTTree {
                 data: "".into(),
                 attrs: None,
                 is_implied: false,
-            }, is_dev),
+            }, ASTElementKind::Root, is_dev),
             children: Default::default(),
             parent: None,
         }));
@@ -659,7 +669,7 @@ impl ASTNode {
                             data: "template".into(),
                             attrs: None,
                             is_implied: false,
-                        }, is_dev),
+                        }, ASTElementKind::Element, is_dev),
                         self.id
                     );
                     let mut slot_container_node = slot_container.borrow_mut();
