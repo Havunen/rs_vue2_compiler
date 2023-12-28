@@ -83,7 +83,11 @@ impl DirectivesParser {
 
         ModelParseResult {
             exp: self.str[0..self.expression_pos].to_string(),
-            key: if self.expression_end_pos <= self.expression_pos {None} else { Some(self.str[self.expression_pos + 1..self.expression_end_pos].to_string()) },
+            key: if self.expression_end_pos <= self.expression_pos {
+                None
+            } else {
+                Some(self.str[self.expression_pos + 1..self.expression_end_pos].to_string())
+            },
         }
     }
 }

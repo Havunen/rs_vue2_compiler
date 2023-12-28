@@ -34,7 +34,13 @@ pub fn parse_filters((expr, quote_type): &(Box<str>, QuoteType)) -> String {
             if c == '/' && prev != '\\' {
                 in_regex = false;
             }
-        } else if c == '|' && expr.chars().nth(i + 1).unwrap() != '|' && expr.chars().nth(i - 1).unwrap() != '|' && curly == 0 && square == 0 && paren == 0 {
+        } else if c == '|'
+            && expr.chars().nth(i + 1).unwrap() != '|'
+            && expr.chars().nth(i - 1).unwrap() != '|'
+            && curly == 0
+            && square == 0
+            && paren == 0
+        {
             if expression.is_none() {
                 last_filter_index = i + 1;
                 expression = Some(expr[..i].trim().to_string());
@@ -92,7 +98,14 @@ fn push_filter(filters: &mut Vec<String>, exp: &str, last_filter_index: &mut usi
 }
 
 fn valid_division_char(p: char) -> bool {
-    p.is_alphanumeric() || p == ')' || p == '.' || p == '+' || p == '-' || p == '_' || p == '$' || p == ']'
+    p.is_alphanumeric()
+        || p == ')'
+        || p == '.'
+        || p == '+'
+        || p == '-'
+        || p == '_'
+        || p == '$'
+        || p == ']'
 }
 
 fn wrap_filter(exp: String, filter: String) -> String {
@@ -101,6 +114,15 @@ fn wrap_filter(exp: String, filter: String) -> String {
         return format!("_f(\"{}\")({})", filter, exp);
     } else {
         let (name, args) = filter.split_at(i.unwrap());
-        return format!("_f(\"{}\")({}{})", name, exp, if args != ")" { ",".to_owned() + args } else { args.to_string() });
+        return format!(
+            "_f(\"{}\")({}{})",
+            name,
+            exp,
+            if args != ")" {
+                ",".to_owned() + args
+            } else {
+                args.to_string()
+            }
+        );
     }
 }

@@ -34,7 +34,6 @@ pub fn to_hyphen_case(s: &str) -> String {
     result
 }
 
-
 pub fn is_some_and_ref<T>(item: &Option<T>, f: impl FnOnce(&T) -> bool) -> bool {
     match item {
         None => false,

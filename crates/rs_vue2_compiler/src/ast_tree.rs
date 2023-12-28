@@ -1,18 +1,21 @@
-use std::cell::{Cell, RefCell};
-use std::rc::{Rc, Weak};
-use std::collections::HashMap;
+use crate::directives_model::gen_assignment_code;
+use crate::filter_parser::parse_filters;
+use crate::helpers::{is_some_and_ref, to_camel, to_hyphen_case};
+use crate::uni_codes::{UC_KEY, UC_V_ELSE, UC_V_ELSE_IF, UC_V_FOR, UC_V_IF, UC_V_ONCE, UC_V_PRE};
+use crate::util::prepend_modifier_marker;
+use crate::{
+    warn, ARG_RE, BIND_RE, DIR_RE, DYNAMIC_ARG_RE, FOR_ALIAS_RE, FOR_ITERATOR_RE, MODIFIER_RE,
+    ON_RE, PROP_BIND_RE, SLOT_RE, STRIP_PARENS_RE,
+};
+use regex::Regex;
 use rs_html_parser_tokenizer_tokens::QuoteType;
 use rs_html_parser_tokens::Token;
 use rs_html_parser_tokens::TokenKind::{OpenTag, ProcessingInstruction};
+use std::cell::{Cell, RefCell};
+use std::collections::HashMap;
+use std::rc::{Rc, Weak};
 use unicase_collections::unicase_btree_map::UniCaseBTreeMap;
 use unicase_collections::unicase_btree_set::UniCaseBTreeSet;
-use crate::uni_codes::{UC_KEY, UC_V_ELSE, UC_V_ELSE_IF, UC_V_FOR, UC_V_IF, UC_V_ONCE, UC_V_PRE};
-use crate::{ARG_RE, BIND_RE, DIR_RE, DYNAMIC_ARG_RE, FOR_ALIAS_RE, FOR_ITERATOR_RE, MODIFIER_RE, ON_RE, PROP_BIND_RE, SLOT_RE, STRIP_PARENS_RE, warn};
-use crate::filter_parser::parse_filters;
-use regex::Regex;
-use crate::directives_model::gen_assignment_code;
-use crate::helpers::{is_some_and_ref, to_camel, to_hyphen_case};
-use crate::util::prepend_modifier_marker;
 
 pub const EMPTY_SLOT_SCOPE_TOKEN: &'static str = "_empty_";
 
@@ -21,7 +24,7 @@ pub struct AttrItem {
     pub name: String,
     pub value: String,
     pub dynamic: bool,
-    pub quote_type: QuoteType
+    pub quote_type: QuoteType,
 }
 
 #[derive(Debug)]
@@ -52,7 +55,7 @@ pub enum ASTElementKind {
     Root = 0,
     Element = 1,
     Expression = 2,
-    Text = 3
+    Text = 3,
 }
 
 #[derive(Debug)]
@@ -110,7 +113,6 @@ pub struct ASTElement {
     pub has_bindings: bool,
     pub kind: ASTElementKind,
 }
-
 
 pub fn create_ast_element(token: Token, kind: ASTElementKind, is_dev: bool) -> ASTElement {
     ASTElement {
@@ -174,12 +176,16 @@ impl ASTTree {
     pub fn new(is_dev: bool) -> Self {
         let node = Rc::new(RefCell::new(ASTNode {
             id: 0,
-            el: create_ast_element(Token {
-                kind: ProcessingInstruction,
-                data: "".into(),
-                attrs: None,
-                is_implied: false,
-            }, ASTElementKind::Root, is_dev),
+            el: create_ast_element(
+                Token {
+                    kind: ProcessingInstruction,
+                    data: "".into(),
+                    attrs: None,
+                    is_implied: false,
+                },
+                ASTElementKind::Root,
+                is_dev,
+            ),
             children: Default::default(),
             parent_id: 0,
             parent: None,
@@ -206,7 +212,7 @@ impl ASTTree {
             el: element,
             parent: Some(Rc::downgrade(&parent)),
             parent_id,
-            children: vec![]
+            children: vec![],
         }));
 
         parent.borrow_mut().children.push(Rc::clone(&new_node));
@@ -223,7 +229,6 @@ impl ASTTree {
     }
 }
 
-
 #[derive(Debug)]
 pub struct ForParseResult {
     pub alias: String,
@@ -233,7 +238,6 @@ pub struct ForParseResult {
 }
 
 impl ASTNode {
-
     pub fn process_raw_attributes(&mut self) {
         // processing attributes should not be needed
         if self.el.token.attrs.is_none() {
@@ -269,7 +273,9 @@ impl ASTNode {
     pub fn parse_for(&mut self, exp: &str) -> Option<ForParseResult> {
         if let Some(in_match) = FOR_ALIAS_RE.captures(exp) {
             let mut res = ForParseResult {
-                alias: STRIP_PARENS_RE.replace_all(in_match[1].trim(), "").to_string(),
+                alias: STRIP_PARENS_RE
+                    .replace_all(in_match[1].trim(), "")
+                    .to_string(),
                 for_value: in_match[2].trim().to_string(),
                 iterator1: None,
                 iterator2: None,
@@ -290,11 +296,8 @@ impl ASTNode {
         }
     }
 
-    pub fn process_if(&mut self)  {
-        let vif_optional = self.get_and_remove_attr(
-            &UC_V_IF,
-            false,
-        );
+    pub fn process_if(&mut self) {
+        let vif_optional = self.get_and_remove_attr(&UC_V_IF, false);
 
         if let Some(vif_value) = vif_optional {
             let new_exp = Some(vif_value.to_string());
@@ -304,19 +307,13 @@ impl ASTNode {
                 block_id: self.id,
             });
         } else {
-            let v_else_optional = self.get_and_remove_attr(
-                &UC_V_ELSE,
-                false,
-            );
+            let v_else_optional = self.get_and_remove_attr(&UC_V_ELSE, false);
 
             if v_else_optional.is_some() {
                 self.el.is_else = true
             }
 
-            let v_else_if_optional = self.get_and_remove_attr(
-                &UC_V_ELSE_IF,
-                false,
-            );
+            let v_else_if_optional = self.get_and_remove_attr(&UC_V_ELSE_IF, false);
 
             if let Some(v_else_if_val) = v_else_if_optional {
                 self.el.if_val = Some(v_else_if_val.to_string());
@@ -325,10 +322,7 @@ impl ASTNode {
     }
 
     pub fn process_once(&mut self) {
-        let v_once_optional = self.get_and_remove_attr(
-            &UC_V_ONCE,
-            false,
-        );
+        let v_once_optional = self.get_and_remove_attr(&UC_V_ONCE, false);
 
         if v_once_optional.is_some() {
             self.el.once = true
@@ -349,10 +343,7 @@ impl ASTNode {
         return None;
     }
 
-    pub fn has_raw_attr(
-        &self,
-        name: &str,
-    ) -> bool {
+    pub fn has_raw_attr(&self, name: &str) -> bool {
         if let Some(ref attrs) = self.el.token.attrs {
             return attrs.contains_key(name);
         }
@@ -360,10 +351,7 @@ impl ASTNode {
         return false;
     }
 
-    pub fn get_raw_attr(
-        &self,
-        name: &str,
-    ) -> Option<&Box<str>> {
+    pub fn get_raw_attr(&self, name: &str) -> Option<&Box<str>> {
         if let Some(ref attrs) = self.el.token.attrs {
             if let Some(attr_value) = attrs.get(name) {
                 if let Some((attr_value, _attr_quote)) = attr_value {
@@ -375,11 +363,7 @@ impl ASTNode {
         return None;
     }
 
-    pub fn get_and_remove_attr(
-        &mut self,
-        name: &str,
-        fully_remove: bool
-    ) -> Option<&Box<str>> {
+    pub fn get_and_remove_attr(&mut self, name: &str, fully_remove: bool) -> Option<&Box<str>> {
         if let Some(ref mut attrs) = self.el.token.attrs {
             if let Some(attr_value) = attrs.get(name) {
                 if !fully_remove {
@@ -398,7 +382,7 @@ impl ASTNode {
     pub fn get_and_remove_attr_including_quotes(
         &mut self,
         name: &str,
-        fully_remove: bool
+        fully_remove: bool,
     ) -> &Option<(Box<str>, QuoteType)> {
         if let Some(ref mut attrs) = self.el.token.attrs {
             if let Some(attr_value_option) = attrs.get(name) {
@@ -413,33 +397,28 @@ impl ASTNode {
         return &None;
     }
 
-    pub fn get_binding_attr(
-        &mut self,
-        name: &'static str,
-        get_static: bool
-    ) -> String  {
-        let mut dynamic_value = self.get_and_remove_attr_including_quotes(&(":".to_string() + name), false);
+    pub fn get_binding_attr(&mut self, name: &'static str, get_static: bool) -> String {
+        let mut dynamic_value =
+            self.get_and_remove_attr_including_quotes(&(":".to_string() + name), false);
 
         if dynamic_value.is_none() {
-            dynamic_value = self.get_and_remove_attr_including_quotes(&("v-bind:".to_string() + name), false);
+            dynamic_value =
+                self.get_and_remove_attr_including_quotes(&("v-bind:".to_string() + name), false);
         }
         if let Some(found_dynamic_value) = dynamic_value {
-            return parse_filters(&found_dynamic_value)
+            return parse_filters(&found_dynamic_value);
         }
         if get_static {
             let static_value = self.get_and_remove_attr(&name, false);
             if let Some(found_static_value) = static_value {
-                return found_static_value.to_string()
+                return found_static_value.to_string();
             }
         }
 
-        return String::from("")
+        return String::from("");
     }
 
-    pub fn get_raw_binding_attr(
-        &mut self,
-        name: &'static str
-    ) -> Option<&Box<str>>  {
+    pub fn get_raw_binding_attr(&mut self, name: &'static str) -> Option<&Box<str>> {
         let mut val = self.get_raw_attr(&(":".to_string() + name));
 
         if val.is_some() {
@@ -489,7 +468,9 @@ impl ASTNode {
 
         // determine whether this is a plain element after
         // removing structural attributes
-        self.el.plain = self.el.key.is_none() && self.el.scoped_slots.is_none() && self.el.token.attrs.is_none();
+        self.el.plain = self.el.key.is_none()
+            && self.el.scoped_slots.is_none()
+            && self.el.token.attrs.is_none();
 
         self.process_ref();
         self.process_slot_content(tree);
@@ -497,10 +478,10 @@ impl ASTNode {
         self.process_component();
 
         /* TODO: finish this
-           for (let i = 0; i < transforms.length; i++) {
-            element = transforms[i](element, options) || element
-          }
-         */
+          for (let i = 0; i < transforms.length; i++) {
+           element = transforms[i](element, options) || element
+         }
+        */
 
         self.process_attrs();
     }
@@ -547,18 +528,26 @@ impl ASTNode {
                     warn("<template> cannot be keyed. Place the key on real elements instead. {}");
                 }
 
-                let has_iterator_1 = self.el.iterator1.is_some() && self.el.iterator1.as_ref().unwrap().eq(&exp);
-                let has_iterator_2 = self.el.iterator2.is_some() && self.el.iterator2.as_ref().unwrap().eq(&exp);
+                let has_iterator_1 =
+                    self.el.iterator1.is_some() && self.el.iterator1.as_ref().unwrap().eq(&exp);
+                let has_iterator_2 =
+                    self.el.iterator2.is_some() && self.el.iterator2.as_ref().unwrap().eq(&exp);
 
                 if self.el.for_value.is_some() {
                     if has_iterator_1 || has_iterator_2 {
                         {
                             if let Some(parent) = self.parent.as_ref().unwrap().upgrade() {
-                                if parent.borrow().el.token.data.eq_ignore_ascii_case("transition-group") {
+                                if parent
+                                    .borrow()
+                                    .el
+                                    .token
+                                    .data
+                                    .eq_ignore_ascii_case("transition-group")
+                                {
                                     // getRawBindingAttr(el, 'key'),
                                     warn(
                                         r#"Do not use v-for index as key on <transition-group> children,
-                                    "this is the same as not using keys. "#
+                                    "this is the same as not using keys. "#,
                                     );
                                 }
                             }
@@ -616,10 +605,12 @@ impl ASTNode {
             } else {
                 Some(slot_target_value.to_string())
             };
-            self.el.slot_target_dynamic = self.has_raw_attr("slot") || self.has_raw_attr("v-bind:slot");
+            self.el.slot_target_dynamic =
+                self.has_raw_attr("slot") || self.has_raw_attr("v-bind:slot");
             // preserve slot as an attribute for native shadow DOM compat
             // only for non-scoped slots.
-            if !self.el.token.data.eq_ignore_ascii_case("template") && !self.el.slot_scope.is_some() {
+            if !self.el.token.data.eq_ignore_ascii_case("template") && !self.el.slot_scope.is_some()
+            {
                 self.insert_into_attrs("slot", &slot_target_value, QuoteType::NoValue, false);
             }
         }
@@ -637,7 +628,11 @@ impl ASTNode {
                         if slot_target.is_some() || slot_scope.is_some() {
                             warn("Unexpected mixed usage of different slot syntaxes. (slot-target, slot-scope)");
                         }
-                        if let Some(parent) = self.parent.as_ref().and_then(|parent_weak| parent_weak.upgrade()) {
+                        if let Some(parent) = self
+                            .parent
+                            .as_ref()
+                            .and_then(|parent_weak| parent_weak.upgrade())
+                        {
                             if parent.borrow().is_maybe_component() {
                                 warn("<template v-slot> can only appear at the root level inside the receiving component.");
                             }
@@ -646,7 +641,11 @@ impl ASTNode {
                     let slot_name = get_slot_name(&*slot_binding_val);
                     self.el.slot_target = Some(slot_name.name);
                     self.el.slot_target_dynamic = slot_name.dynamic;
-                    self.el.slot_scope = Some(if slot_binding_val.is_empty() { Box::from(EMPTY_SLOT_SCOPE_TOKEN) } else { slot_binding_val.clone() });
+                    self.el.slot_scope = Some(if slot_binding_val.is_empty() {
+                        Box::from(EMPTY_SLOT_SCOPE_TOKEN)
+                    } else {
+                        slot_binding_val.clone()
+                    });
                 }
             } else {
                 let slot_binding = self.get_and_remove_attr_by_regex(&SLOT_RE);
@@ -672,13 +671,17 @@ impl ASTNode {
 
                     let slot_name = get_slot_name(&*slot_binding_val);
                     let slot_container = tree.create(
-                        create_ast_element(Token {
-                            kind: OpenTag,
-                            data: "template".into(),
-                            attrs: None,
-                            is_implied: false,
-                        }, ASTElementKind::Element, is_dev),
-                        self.id
+                        create_ast_element(
+                            Token {
+                                kind: OpenTag,
+                                data: "template".into(),
+                                attrs: None,
+                                is_implied: false,
+                            },
+                            ASTElementKind::Element,
+                            is_dev,
+                        ),
+                        self.id,
                     );
                     let mut slot_container_node = slot_container.borrow_mut();
 
@@ -688,16 +691,25 @@ impl ASTNode {
                     // Convert self to a Weak reference
                     let parent = tree.get(self.id).cloned().unwrap();
 
-                    slot_container_node.children = self.children.iter().map(|child| Rc::clone(child)).filter_map(|child_rc| {
-                        let mut child = child_rc.borrow_mut();
-                        if child.el.slot_scope.is_none() {
-                            child.parent = Some(Rc::downgrade(&parent));
-                            Some(Rc::clone(&child_rc))
-                        } else {
-                            None
-                        }
-                    }).collect::<Vec<_>>();
-                    slot_container_node.el.slot_scope = Some(if slot_binding_val.is_empty() { Box::from(EMPTY_SLOT_SCOPE_TOKEN) } else { slot_binding_val.clone() });
+                    slot_container_node.children = self
+                        .children
+                        .iter()
+                        .map(|child| Rc::clone(child))
+                        .filter_map(|child_rc| {
+                            let mut child = child_rc.borrow_mut();
+                            if child.el.slot_scope.is_none() {
+                                child.parent = Some(Rc::downgrade(&parent));
+                                Some(Rc::clone(&child_rc))
+                            } else {
+                                None
+                            }
+                        })
+                        .collect::<Vec<_>>();
+                    slot_container_node.el.slot_scope = Some(if slot_binding_val.is_empty() {
+                        Box::from(EMPTY_SLOT_SCOPE_TOKEN)
+                    } else {
+                        slot_binding_val.clone()
+                    });
                     drop(slot_container_node);
                     slots.insert(slot_name.name.to_string(), slot_container);
 
@@ -710,14 +722,20 @@ impl ASTNode {
         }
     }
 
-    fn insert_into_attrs(&mut self, key: &str, value: &str, quote_type: QuoteType, is_dynamic: bool) {
+    fn insert_into_attrs(
+        &mut self,
+        key: &str,
+        value: &str,
+        quote_type: QuoteType,
+        is_dynamic: bool,
+    ) {
         self.el.plain = false;
 
         let item = AttrItem {
             name: key.to_string(),
             value: value.to_string(),
             dynamic: is_dynamic,
-            quote_type
+            quote_type,
         };
 
         if is_dynamic {
@@ -727,14 +745,20 @@ impl ASTNode {
         }
     }
 
-    fn insert_into_props(&mut self, key: &str, value: &str, quote_type: QuoteType, is_dynamic: bool) {
+    fn insert_into_props(
+        &mut self,
+        key: &str,
+        value: &str,
+        quote_type: QuoteType,
+        is_dynamic: bool,
+    ) {
         self.el.plain = false;
 
         let item = AttrItem {
             name: key.to_string(),
             value: value.to_string(),
             dynamic: is_dynamic,
-            quote_type
+            quote_type,
         };
         self.el.attrs.push(item);
     }
@@ -744,13 +768,20 @@ impl ASTNode {
             return true;
         }
 
-        let mut current_node = self.parent.as_ref().and_then(|parent_weak| parent_weak.upgrade());
+        let mut current_node = self
+            .parent
+            .as_ref()
+            .and_then(|parent_weak| parent_weak.upgrade());
 
         while let Some(node) = current_node {
             if node.borrow().el.for_value.is_some() {
                 return true;
             }
-            current_node = node.borrow().parent.as_ref().and_then(|parent_weak| parent_weak.upgrade());
+            current_node = node
+                .borrow()
+                .parent
+                .as_ref()
+                .and_then(|parent_weak| parent_weak.upgrade());
         }
 
         false
@@ -758,38 +789,47 @@ impl ASTNode {
 
     pub fn check_for_alias_model(&self, val: &str) {
         if !self.el.is_dev {
-            return
+            return;
         }
 
         // TODO: Finish variables in warning
-        let warn_text =
-r#""<{el.tag} v-model="${value}">
+        let warn_text = r#""<{el.tag} v-model="${value}">
 You are binding v-model directly to a v-for iteration alias.
 This will not be able to modify the v-for source array because
 writing to the alias is like modifying a function local variable.
 Consider using an array of objects and use v-model on an object property instead.""#;
 
-
-        if self.el.for_value.is_some() && is_some_and_ref(&self.el.alias, |alias| alias.eq_ignore_ascii_case(val)) {
+        if self.el.for_value.is_some()
+            && is_some_and_ref(&self.el.alias, |alias| alias.eq_ignore_ascii_case(val))
+        {
             warn(warn_text);
             return;
         }
 
-        let mut current_node = self.parent.as_ref().and_then(|parent_weak| parent_weak.upgrade());
+        let mut current_node = self
+            .parent
+            .as_ref()
+            .and_then(|parent_weak| parent_weak.upgrade());
 
         while let Some(node) = current_node {
-            if node.borrow().el.for_value.is_some() && is_some_and_ref(&node.borrow().el.alias, |alias| alias.eq_ignore_ascii_case(val)) {
+            if node.borrow().el.for_value.is_some()
+                && is_some_and_ref(&node.borrow().el.alias, |alias| {
+                    alias.eq_ignore_ascii_case(val)
+                })
+            {
                 warn(warn_text);
             }
-            current_node = node.borrow().parent.as_ref().and_then(|parent_weak| parent_weak.upgrade());
+            current_node = node
+                .borrow()
+                .parent
+                .as_ref()
+                .and_then(|parent_weak| parent_weak.upgrade());
         }
     }
 
     // TODO: Finish this
     pub fn is_maybe_component(&self) -> bool {
-        self.el.component ||
-        self.has_raw_attr("is") ||
-        self.has_raw_attr("v-bind:is")
+        self.el.component || self.has_raw_attr("is") || self.has_raw_attr("v-bind:is")
         // !(self.el.token.attrs.attrsMap.is ? isReservedTag(el.attrsMap.is) : isReservedTag(el.tag))
     }
     pub fn process_attrs(&mut self) {
@@ -838,7 +878,10 @@ Consider using an array of objects and use v-model on an object property instead
                 }
 
                 if self.el.is_dev && value.as_ref().is_some_and(|v| v.0.trim().is_empty()) {
-                    warn(&format!("The value for a v-bind expression cannot be empty. Found in \"v-bind:{}\"", name_str));
+                    warn(&format!(
+                        "The value for a v-bind expression cannot be empty. Found in \"v-bind:{}\"",
+                        name_str
+                    ));
                 }
 
                 if let Some(ref modifiers) = modifiers_option.as_ref() {
@@ -851,7 +894,11 @@ Consider using an array of objects and use v-model on an object property instead
                         name_str = to_camel(&name_str);
                     }
                     if modifiers.contains("sync") {
-                        let sync_gen = if value.is_some() { gen_assignment_code(value.as_ref().unwrap(), "$event") } else { "".to_string() };
+                        let sync_gen = if value.is_some() {
+                            gen_assignment_code(value.as_ref().unwrap(), "$event")
+                        } else {
+                            "".to_string()
+                        };
                         if !is_dynamic {
                             let camel_case_name = to_camel(&name_str);
                             let hyphen_case_name = to_hyphen_case(&name_str);
@@ -861,7 +908,7 @@ Consider using an array of objects and use v-model on an object property instead
                                 &sync_gen,
                                 None,
                                 false,
-                                false
+                                false,
                             );
 
                             if hyphen_case_name != camel_case_name {
@@ -870,7 +917,7 @@ Consider using an array of objects and use v-model on an object property instead
                                     &sync_gen,
                                     None,
                                     false,
-                                    false
+                                    false,
                                 );
                             }
                         } else {
@@ -880,12 +927,16 @@ Consider using an array of objects and use v-model on an object property instead
                                 &sync_gen,
                                 None,
                                 false,
-                                true
+                                true,
                             );
                         }
                     }
                 }
-                let attr_value = if value.is_some() { value.unwrap() } else { ( "".to_string().into_boxed_str(), QuoteType::NoValue) };
+                let attr_value = if value.is_some() {
+                    value.unwrap()
+                } else {
+                    ("".to_string().into_boxed_str(), QuoteType::NoValue)
+                };
 
                 if is_some_and_ref(&modifiers_option, |modifiers| modifiers.contains("prop")) {
                     // TODO: (!el.component && platformMustUseProp(el.tag, el.attrsMap.type, name))
@@ -893,19 +944,32 @@ Consider using an array of objects and use v-model on an object property instead
                 } else {
                     self.insert_into_attrs(&name_str, &attr_value.0, attr_value.1, is_dynamic);
                 }
-
             } else if ON_RE.is_match(&name_str) {
                 // v-on
-                let attr_value = if value.is_some() { value.unwrap() } else { ( "".to_string().into_boxed_str(), QuoteType::NoValue) };
+                let attr_value = if value.is_some() {
+                    value.unwrap()
+                } else {
+                    ("".to_string().into_boxed_str(), QuoteType::NoValue)
+                };
 
                 name_str = ON_RE.replace_all(&name_str, "").to_string();
                 let is_dynamic = DYNAMIC_ARG_RE.is_match(&name_str);
                 if is_dynamic {
                     name_str = name_str[1..name_str.len() - 1].to_string();
                 }
-                self.add_handler(&name_str, &attr_value.0, modifiers_option, false, is_dynamic);
+                self.add_handler(
+                    &name_str,
+                    &attr_value.0,
+                    modifiers_option,
+                    false,
+                    is_dynamic,
+                );
             } else {
-                let attr_value = if value.is_some() { value.unwrap() } else { ( "".to_string().into_boxed_str(), QuoteType::NoValue) };
+                let attr_value = if value.is_some() {
+                    value.unwrap()
+                } else {
+                    ("".to_string().into_boxed_str(), QuoteType::NoValue)
+                };
 
                 // normal directives
                 name_str = DIR_RE.replace_all(&name_str, "").to_string();
@@ -927,14 +991,18 @@ Consider using an array of objects and use v-model on an object property instead
                     &(attr_value.0),
                     arg,
                     is_dynamic,
-                    modifiers_option
+                    modifiers_option,
                 );
                 if self.el.is_dev && name_str.eq_ignore_ascii_case("model") {
                     self.check_for_alias_model(&(attr_value.0));
                 }
             }
         } else {
-            let attr_value = if value.is_some() { value.unwrap() } else { ( "".to_string().into_boxed_str(), QuoteType::NoValue) };
+            let attr_value = if value.is_some() {
+                value.unwrap()
+            } else {
+                ("".to_string().into_boxed_str(), QuoteType::NoValue)
+            };
 
             // literal attribute
             if self.el.is_dev {
@@ -1004,7 +1072,8 @@ Consider using an array of objects and use v-model on an object property instead
             &mut self.el.native_events
         } else {
             &mut self.el.events
-        }).get_or_insert(UniCaseBTreeMap::new());
+        })
+        .get_or_insert(UniCaseBTreeMap::new());
 
         let new_handler = Handler {
             value: value.trim().to_string(),
@@ -1058,7 +1127,10 @@ fn find_prev_element(children: &mut Vec<Rc<RefCell<ASTNode>>>) -> Option<&Rc<Ref
         }
 
         if children[0].borrow().el.is_dev {
-            warn(&format!("text \"{}\" between v-if and v-else(-if) will be ignored.", &children[0].borrow().el.token.data));
+            warn(&format!(
+                "text \"{}\" between v-if and v-else(-if) will be ignored.",
+                &children[0].borrow().el.token.data
+            ));
         }
 
         children.remove(0);
@@ -1072,7 +1144,8 @@ fn parse_modifiers(name: &str) -> Option<UniCaseBTreeSet> {
 
     let mut ret: Option<UniCaseBTreeSet> = None;
     for cap in captures {
-        ret.get_or_insert(UniCaseBTreeSet::new()).insert(cap[0][1..].to_string());
+        ret.get_or_insert(UniCaseBTreeSet::new())
+            .insert(cap[0][1..].to_string());
     }
 
     return ret;

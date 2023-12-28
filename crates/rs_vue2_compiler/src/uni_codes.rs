@@ -1,5 +1,5 @@
-use unicase::UniCase;
 use lazy_static::lazy_static;
+use unicase::UniCase;
 
 lazy_static! {
     pub static ref UC_TYPE: UniCase<&'static str> = UniCase::new("type");

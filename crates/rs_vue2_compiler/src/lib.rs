@@ -1,23 +1,23 @@
-mod util;
-mod uni_codes;
 mod ast_tree;
+mod directives_model;
 mod filter_parser;
 mod helpers;
-mod directives_model;
+mod uni_codes;
+mod util;
 
 extern crate lazy_static;
 
-use std::collections::VecDeque;
-use std::rc::Rc;
+use crate::ast_tree::{create_ast_element, ASTElement, ASTElementKind, ASTTree, IfCondition};
+use crate::uni_codes::{UC_TYPE, UC_V_FOR};
+use crate::util::{get_attribute, has_attribute};
 use lazy_static::lazy_static;
 use regex::Regex;
 use rs_html_parser::{Parser, ParserOptions};
 use rs_html_parser_tokenizer::TokenizerOptions;
 use rs_html_parser_tokens::{Token, TokenKind};
+use std::collections::VecDeque;
+use std::rc::Rc;
 use unicase_collections::unicase_btree_map::UniCaseBTreeMap;
-use crate::ast_tree::{ASTElement, ASTElementKind, ASTTree, create_ast_element, IfCondition};
-use crate::uni_codes::{UC_TYPE, UC_V_FOR};
-use crate::util::{get_attribute, has_attribute};
 
 lazy_static! {
     static ref INVALID_ATTRIBUTE_RE: Regex = Regex::new(r##"/[\s"'<>\/=]/"##).unwrap();
@@ -36,7 +36,6 @@ lazy_static! {
     static ref ON_RE: Regex = Regex::new(r"^@|^v-on:").unwrap();
 }
 
-
 // TODO: Move to options
 fn warn(message: &str) {
     println!("{}", message)
@@ -46,9 +45,8 @@ pub struct CompilerOptions {
     pub dev: bool,
     pub is_ssr: bool,
 
-    pub is_pre_tag: Option<fn(tag: &str) -> bool>
+    pub is_pre_tag: Option<fn(tag: &str) -> bool>,
 }
-
 
 fn is_forbidden_tag(el: &Token) -> bool {
     if &el.kind != &TokenKind::OpenTag {
@@ -66,7 +64,7 @@ fn is_forbidden_tag(el: &Token) -> bool {
 
             return false;
         }
-        _ => false
+        _ => false,
     }
 }
 
@@ -81,8 +79,8 @@ pub struct VueParser {
 const PARSER_OPTIONS: ParserOptions = ParserOptions {
     xml_mode: false,
     tokenizer_options: TokenizerOptions {
-    xml_mode: Some(false),
-    decode_entities: Some(true),
+        xml_mode: Some(false),
+        decode_entities: Some(true),
     },
 };
 
@@ -103,13 +101,14 @@ impl VueParser {
         }
     }
 
-    fn check_root_constraints(&mut self, new_root: &ASTElement ) {
+    fn check_root_constraints(&mut self, new_root: &ASTElement) {
         if self.warned {
-           return;
+            return;
         }
 
         if new_root.token.data.eq_ignore_ascii_case("slot")
-            || new_root.token.data.eq_ignore_ascii_case("template") {
+            || new_root.token.data.eq_ignore_ascii_case("template")
+        {
             self.warn_once("Cannot use <${el.tag}> as component root element because it may contain multiple nodes.")
         }
         if has_attribute(&new_root.token, &UC_V_FOR) {
@@ -137,7 +136,7 @@ impl VueParser {
                 TokenKind::OpenTag => {
                     let node_rc = root_tree.create(
                         create_ast_element(token, ASTElementKind::Element, is_dev),
-                        current_parent_id
+                        current_parent_id,
                     );
                     let mut node = node_rc.borrow_mut();
                     root_tree.set(node.id, node_rc.clone());
@@ -159,11 +158,13 @@ impl VueParser {
 
                         if is_dev {
                             // TODO: add tag
-                            warn("
+                            warn(
+                                "
             Templates should only be responsible for mapping the state to the
             UI. Avoid placing tags with side-effects in your templates, such as
             <{tag}> as they will not be parsed.
-                ")
+                ",
+                            )
                         }
                     }
 
@@ -188,7 +189,7 @@ impl VueParser {
 
                     current_parent_id = node.id;
                     stack.push_back(node.id);
-                },
+                }
                 TokenKind::CloseTag => {
                     let current_open_tag_id = stack.pop_back();
 
@@ -201,7 +202,9 @@ impl VueParser {
                         }
                         // tree management
                         if stack.is_empty() && node.id != 0 {
-                            if root_tree.get(0).unwrap().borrow().el.if_val.is_some() && (node.el.else_if_val.is_some() || node.el.is_else) {
+                            if root_tree.get(0).unwrap().borrow().el.if_val.is_some()
+                                && (node.el.else_if_val.is_some() || node.el.is_else)
+                            {
                                 if is_dev {
                                     self.check_root_constraints(&node.el);
                                 }
@@ -217,8 +220,11 @@ impl VueParser {
                                 warn("Component template should contain exactly one root element. If you are using v-if on multiple elements, use v-else-if to chain them instead.");
                             }
                         }
-                        let mut current_parent = root_tree.get(node.parent_id).unwrap().borrow_mut();
-                        if /* current_parent exists always && */ !node.el.forbidden {
+                        let mut current_parent =
+                            root_tree.get(node.parent_id).unwrap().borrow_mut();
+                        if
+                        /* current_parent exists always && */
+                        !node.el.forbidden {
                             if node.el.else_if_val.is_some() || node.el.is_else {
                                 node.process_if_conditions(current_parent.children.as_mut());
                             } else {
@@ -228,7 +234,8 @@ impl VueParser {
                                     // find it as the prev node.
                                     let slot_target = node.el.slot_target.clone();
                                     let id = node.id;
-                                    let scoped_slots = node.el.scoped_slots.get_or_insert(UniCaseBTreeMap::new());
+                                    let scoped_slots =
+                                        node.el.scoped_slots.get_or_insert(UniCaseBTreeMap::new());
                                     let name = if let Some(slot_target) = slot_target {
                                         slot_target
                                     } else {
@@ -246,14 +253,19 @@ impl VueParser {
 
                                     // final children cleanup
                                     // filter out scoped slots
-                                    node.children = node.children.iter().map(|child| Rc::clone(child)).filter_map(|child_rc| {
-                                        let child = child_rc.borrow_mut();
-                                        if child.el.slot_scope.is_none() {
-                                            Some(Rc::clone(&child_rc))
-                                        } else {
-                                            None
-                                        }
-                                    }).collect::<Vec<_>>();
+                                    node.children = node
+                                        .children
+                                        .iter()
+                                        .map(|child| Rc::clone(child))
+                                        .filter_map(|child_rc| {
+                                            let child = child_rc.borrow_mut();
+                                            if child.el.slot_scope.is_none() {
+                                                Some(Rc::clone(&child_rc))
+                                            } else {
+                                                None
+                                            }
+                                        })
+                                        .collect::<Vec<_>>();
 
                                     // remove trailing whitespace node again
 
@@ -272,10 +284,10 @@ impl VueParser {
                             }
                         }
                     }
-                },
+                }
                 TokenKind::Comment => {
-                  // TODO: Implement comments
-                },
+                    // TODO: Implement comments
+                }
                 TokenKind::Text => {
                     if current_parent_id == 0 {
                         if is_dev {
@@ -312,7 +324,7 @@ impl VueParser {
                     if !token.data.is_empty() {
                         let node_rc = root_tree.create(
                             create_ast_element(token, ASTElementKind::Text, is_dev),
-                            current_parent_id
+                            current_parent_id,
                         );
                         root_tree.set(node_rc.borrow().id, node_rc.clone());
                         // if !self.in_pre && self.whitespace_option.as_ref().unwrap() == "condense" {
