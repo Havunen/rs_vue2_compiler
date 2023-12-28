@@ -116,6 +116,7 @@ pub struct ASTElement {
     pub scoped_slots: Option<UniCaseBTreeMap<Rc<RefCell<ASTNode>>>>,
     pub has_bindings: bool,
     pub kind: ASTElementKind,
+    pub is_comment: bool,
 }
 
 pub fn create_ast_element(token: Token, kind: ASTElementKind, is_dev: bool) -> ASTElement {
@@ -160,6 +161,7 @@ pub fn create_ast_element(token: Token, kind: ASTElementKind, is_dev: bool) -> A
         events: None,
         native_events: None,
         tokens: None,
+        is_comment: false,
     }
 }
 

@@ -95,4 +95,186 @@ mod tests {
         let parent = child.parent.as_ref().unwrap().upgrade().unwrap();
         assert_eq!(Rc::ptr_eq(&parent, &wrapper.children[0]), true);
     }
+
+    #[test]
+    fn camel_case_element() {
+        let ast = parse("<MyComponent><p>hello world</p></MyComponent>");
+
+        let wrapper = ast.wrapper.borrow();
+        let root = wrapper.children[0].borrow();
+        assert_eq!(root.el.token.data, Box::from("MyComponent"));
+        assert_eq!(root.el.plain, true);
+
+        let child = root.children[0].borrow();
+        assert_eq!(child.el.token.data, Box::from("p"));
+        assert_eq!(child.el.plain, true);
+        assert_eq!(
+            child.children[0].borrow().el.token.data,
+            Box::from("hello world")
+        );
+
+        let parent = child.parent.as_ref().unwrap().upgrade().unwrap();
+        assert_eq!(Rc::ptr_eq(&parent, &wrapper.children[0]), true);
+    }
+
+    #[test]
+    fn forbidden_element() {
+        // style
+        let style_ast = parse("<style>error { color: red; }</style>");
+
+        let wrapper = style_ast.wrapper.borrow();
+        let root = wrapper.children[0].borrow();
+        assert_eq!(root.el.token.data, Box::from("style"));
+        assert_eq!(root.el.plain, true);
+        assert_eq!(root.el.forbidden, true);
+        assert_eq!(
+            root.children[0].borrow().el.token.data,
+            Box::from("error { color: red; }")
+        );
+
+        // script
+        let script_ast = parse("<script type=\"text/javascript\">alert(\"hello world!\")</script>");
+
+        let wrapper = script_ast.wrapper.borrow();
+        let root = wrapper.children[0].borrow();
+        assert_eq!(root.el.token.data, Box::from("script"));
+        assert_eq!(root.el.plain, false);
+        assert_eq!(root.el.forbidden, true);
+        assert_eq!(
+            root.children[0].borrow().el.token.data,
+            Box::from("alert(\"hello world!\")")
+        );
+    }
+
+    /*
+
+    Convert these when its known how to get provide warnings
+
+      it('not contain root element', () => {
+        parse('hello world', baseOptions)
+        expect(
+          'Component template requires a root element, rather than just text'
+        ).toHaveBeenWarned()
+      })
+
+      it('warn text before root element', () => {
+        parse('before root {{ interpolation }}<div></div>', baseOptions)
+        expect(
+          'text "before root {{ interpolation }}" outside root element will be ignored.'
+        ).toHaveBeenWarned()
+      })
+
+      it('warn text after root element', () => {
+        parse('<div></div>after root {{ interpolation }}', baseOptions)
+        expect(
+          'text "after root {{ interpolation }}" outside root element will be ignored.'
+        ).toHaveBeenWarned()
+      })
+
+      it('warn multiple root elements', () => {
+        parse('<div></div><div></div>', baseOptions)
+        expect(
+          'Component template should contain exactly one root element'
+        ).toHaveBeenWarned()
+      })
+     */
+
+    // Condensing white space could be moved to the html parser
+    #[ignore]
+    fn remove_duplicate_whitespace_text_nodes_caused_by_comments() {
+        let ast = parse("<div><a></a> <!----> <a></a></div>");
+
+        let wrapper = ast.wrapper.borrow();
+        let root = wrapper.children[0].borrow();
+        assert_eq!(root.children.len(), 3);
+
+        let child_1 = root.children[0].borrow();
+        assert_eq!(child_1.el.token.data, Box::from("a"));
+
+        let child_2 = root.children[1].borrow();
+        assert_eq!(child_2.el.token.data, Box::from(" "));
+
+        let child_3 = root.children[2].borrow();
+        assert_eq!(child_3.el.token.data, Box::from("a"));
+    }
+
+    #[test]
+    fn forbidden_element_2() {
+        // style
+        let style_ast = parse("<style>error { color: red; }</style>");
+
+        let wrapper = style_ast.wrapper.borrow();
+        let root = wrapper.children[0].borrow();
+        assert_eq!(root.el.token.data, Box::from("style"));
+        assert_eq!(root.el.plain, true);
+        assert_eq!(root.el.forbidden, true);
+        assert_eq!(
+            root.children[0].borrow().el.token.data,
+            Box::from("error { color: red; }")
+        );
+
+        // script
+        let script_ast = parse("<script type=\"text/javascript\">alert(\"hello world!\")</script>");
+
+        let wrapper = script_ast.wrapper.borrow();
+        let root = wrapper.children[0].borrow();
+        assert_eq!(root.el.token.data, Box::from("script"));
+        assert_eq!(root.el.plain, false);
+        assert_eq!(root.el.forbidden, true);
+        assert_eq!(
+            root.children[0].borrow().el.token.data,
+            Box::from("alert(\"hello world!\")")
+        );
+    }
+
+    /*
+
+      it('not contain root element', () => {
+    parse('hello world', baseOptions)
+    expect(
+      'Component template requires a root element, rather than just text'
+    ).toHaveBeenWarned()
+  })
+
+  it('warn text before root element', () => {
+    parse('before root {{ interpolation }}<div></div>', baseOptions)
+    expect(
+      'text "before root {{ interpolation }}" outside root element will be ignored.'
+    ).toHaveBeenWarned()
+  })
+
+  it('warn text after root element', () => {
+    parse('<div></div>after root {{ interpolation }}', baseOptions)
+    expect(
+      'text "after root {{ interpolation }}" outside root element will be ignored.'
+    ).toHaveBeenWarned()
+  })
+
+  it('warn multiple root elements', () => {
+    parse('<div></div><div></div>', baseOptions)
+    expect(
+      'Component template should contain exactly one root element'
+    ).toHaveBeenWarned()
+  })
+
+     */
+
+
+    #[test]
+    fn remove_text_nodes_between_v_if_conditions() {
+        let ast = parse("<div><div v-if=\"1\"></div> <div v-else-if=\"2\"></div> <div v-else></div> <span></span></div>");
+
+        let wrapper = ast.wrapper.borrow();
+        let root = wrapper.children[0].borrow();
+        assert_eq!(root.children.len(), 3);
+
+        assert_eq!(root.children[0].borrow().el.token.data, Box::from("div"));
+        assert_eq!(root.children[0].borrow().el.if_conditions.as_ref().unwrap().len(), 3);
+
+        let child_2 = root.children[1].borrow();
+        assert_eq!(child_2.el.token.data, Box::from(" "));
+
+        let child_3 = root.children[2].borrow();
+        assert_eq!(child_3.el.token.data, Box::from("span"));
+    }
 }

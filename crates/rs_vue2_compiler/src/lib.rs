@@ -148,7 +148,8 @@ impl VueParser {
                         current_parent_id,
                     );
                     let mut node = node_rc.borrow_mut();
-                    root_tree.set(node.id, node_rc.clone());
+                    let node_id = node.id;
+                    root_tree.set(node_id, node_rc.clone());
 
                     let ns = if let Some(parent_ns) = current_namespace {
                         Some(parent_ns)
@@ -207,11 +208,12 @@ impl VueParser {
                         node.process_once();
                     }
 
-                    current_parent_id = node.id;
-                    stack.push_back(node.id);
+                    current_parent_id = node_id;
+                    stack.push_back(node_id);
                 }
                 TokenKind::CloseTag => {
                     let current_open_tag_id = stack.pop_back();
+                    current_parent_id = *stack.back().unwrap_or(&(0usize));
 
                     if let Some(open_tag_id) = current_open_tag_id {
                         let mut node = root_tree.get(open_tag_id).unwrap().borrow_mut();
@@ -306,7 +308,23 @@ impl VueParser {
                     }
                 }
                 TokenKind::Comment => {
-                    // TODO: Implement comments
+                    if current_parent_id != 0 {
+                        let node_rc = root_tree.create(
+                            create_ast_element(token, ASTElementKind::Text, is_dev),
+                            current_parent_id,
+                        );
+                        let mut node = node_rc.borrow_mut();
+                        node.el.is_comment = true;
+                        root_tree.set(node.id, node_rc.clone());
+                        current_parent_id = node.id;
+                        stack.push_back(node.id);
+                    }
+                }
+                TokenKind::CommentEnd => {
+                    if current_parent_id != 0 {
+                        let _unused_open_comment_id = stack.pop_back();
+                        current_parent_id = *stack.back().unwrap_or(&(0usize));
+                    }
                 }
                 TokenKind::Text => {
                     if current_parent_id == 0 {
@@ -400,9 +418,7 @@ impl VueParser {
                         // }
                     }
                 }
-                _ => {
-                    todo!("missing implementation")
-                }
+                _ => {}
             }
         }
 
