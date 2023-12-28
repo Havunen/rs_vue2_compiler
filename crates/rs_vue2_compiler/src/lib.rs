@@ -5,7 +5,6 @@ mod filter_parser;
 mod helpers;
 mod directives_model;
 
-#[macro_use]
 extern crate lazy_static;
 
 use std::collections::VecDeque;
@@ -14,7 +13,7 @@ use regex::Regex;
 use rs_html_parser::{Parser, ParserOptions};
 use rs_html_parser_tokenizer::TokenizerOptions;
 use rs_html_parser_tokens::{Token, TokenKind};
-use crate::ast_tree::{ASTElement, ASTTree, create_ast_element};
+use crate::ast_tree::{ASTElement, ASTTree, create_ast_element, IfCondition};
 use crate::uni_codes::{UC_TYPE, UC_V_FOR};
 use crate::util::{get_attribute, has_attribute};
 
@@ -140,7 +139,7 @@ impl VueParser {
                     );
                     let mut node = node_rc.borrow_mut();
 
-                     if is_dev {
+                    if is_dev {
                         if let Some(attrs) = &node.el.token.attrs {
                             for (attr_key, _attr_value) in attrs {
                                 if INVALID_ATTRIBUTE_RE.find(&attr_key).is_some() {
@@ -197,11 +196,33 @@ impl VueParser {
                         if !self.in_v_pre && !node.el.processed {
                             node.process_element(&root_tree);
                         }
+                        // tree management
+                        if stack.is_empty() && node.id != 0 {
+                            if root_tree.get(0).unwrap().borrow().el.if_val.is_some() && (node.el.else_if_val.is_some() || node.el.is_else) {
+                                if is_dev {
+                                    self.check_root_constraints(&node.el);
+                                }
+                                // TODO: What should happen if there is v-else ??? eh?
+                                let else_if_val = node.el.else_if_val.clone();
+                                let node_id = node.id;
+
+                                node.add_if_condition(IfCondition {
+                                    exp: else_if_val,
+                                    block_id: node_id,
+                                });
+                            } else if is_dev {
+                                warn("Component template should contain exactly one root element. If you are using v-if on multiple elements, use v-else-if to chain them instead.");
+                            }
+                        }
+                        let mut current_parent = root_tree.get(current_parent_id).unwrap().borrow_mut();
+                        if /* current_parent exists always && */ !node.el.forbidden {
+                            if node.el.else_if_val.is_some() || node.el.is_else {
+                                node.process_if_conditions(current_parent.children.as_mut());
+                            }
+                        }
                     }
                 },
-                TokenKind::Text => {
-
-                }
+                TokenKind::Text => {}
                 _ => {
                     todo!("missing implementation")
                 }

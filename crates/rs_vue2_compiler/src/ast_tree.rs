@@ -42,6 +42,12 @@ pub struct Directive {
 }
 
 #[derive(Debug)]
+pub struct IfCondition {
+    pub exp: Option<String>,
+    pub block_id: usize,
+}
+
+#[derive(Debug)]
 pub struct ASTElement {
     // rs_html_parser_tokens Token
     pub token: Token,
@@ -84,6 +90,7 @@ pub struct ASTElement {
     pub if_processed: bool,
     pub else_if_val: Option<String>,
     pub is_else: bool,
+    pub if_conditions: Option<Vec<IfCondition>>,
 
     pub once: bool,
 
@@ -113,6 +120,7 @@ pub fn create_ast_element(token: Token, is_dev: bool) -> ASTElement {
         if_processed: false,
         else_if_val: None,
         is_else: false,
+        if_conditions: None,
         once: false,
         slot_name: None,
         slot_target: None,
@@ -271,7 +279,12 @@ impl ASTNode {
         );
 
         if let Some(vif_value) = vif_optional {
-            self.el.if_val = Some(vif_value.to_string());
+            let new_exp = Some(vif_value.to_string());
+            self.el.if_val = new_exp.clone();
+            self.add_if_condition(IfCondition {
+                exp: new_exp.clone(),
+                block_id: self.id,
+            });
         } else {
             let v_else_optional = self.get_and_remove_attr(
                 &UC_V_ELSE,
@@ -422,6 +435,35 @@ impl ASTNode {
         }
 
         return self.get_raw_attr(&name);
+    }
+
+    pub fn add_if_condition(&mut self, if_condition: IfCondition) {
+        if self.el.if_conditions.is_none() {
+            self.el.if_conditions = Some(vec![]);
+        }
+
+        self.el.if_conditions.as_mut().unwrap().push(if_condition);
+    }
+
+    pub fn process_if_conditions(&mut self, parent_children: &mut Vec<Rc<RefCell<ASTNode>>>) {
+        let prev = find_prev_element(parent_children);
+        if let Some(prev_element) = prev {
+            if prev_element.borrow().el.if_val.is_some() {
+                prev_element.borrow_mut().add_if_condition(IfCondition {
+                    exp: self.el.else_if_val.clone(),
+                    block_id: self.id,
+                });
+            }
+        } else if self.el.is_dev {
+            warn(&format!(
+                "v-{} used on element <{}> without corresponding v-if.",
+                match &self.el.else_if_val {
+                    Some(else_if_val) => format!("else-if=\"{}\"", else_if_val),
+                    None => "else".to_string(),
+                },
+                self.el.token.data
+            ));
+        }
     }
 
     pub fn process_element(&mut self, tree: &ASTTree) {
@@ -737,6 +779,7 @@ Consider using an array of objects and use v-model on an object property instead
             return;
         }
 
+        // TODO: Get rid off this clone
         let attrs = self.el.token.attrs.clone().unwrap();
         for (orig_name, orig_val) in attrs.iter() {
             self.process_attr(&orig_name, &orig_val);
@@ -984,6 +1027,26 @@ Consider using an array of objects and use v-model on an object property instead
         self.el.directives.get_or_insert(Vec::new()).push(directive);
         self.el.plain = false;
     }
+}
+
+fn find_prev_element(children: &mut Vec<Rc<RefCell<ASTNode>>>) -> Option<&Rc<RefCell<ASTNode>>> {
+    if children.len() == 0 {
+        return None;
+    }
+
+    while children.len() > 0 {
+        if children[0].borrow().el.token.kind == OpenTag {
+            return Some(&children[0]);
+        }
+
+        if children[0].borrow().el.is_dev {
+            warn(&format!("text \"{}\" between v-if and v-else(-if) will be ignored.", &children[0].borrow().el.token.data));
+        }
+
+        children.remove(0);
+    }
+
+    return None;
 }
 
 fn parse_modifiers(name: &str) -> Option<UniCaseBTreeSet> {
