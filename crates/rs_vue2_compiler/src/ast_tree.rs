@@ -66,7 +66,6 @@ pub struct ASTElement {
     pub expression: Option<String>,
     pub tokens: Option<Vec<String>>,
 
-
     // TODO: internal helpers, move these somewhere else
     pub is_dev: bool,
     pub new_slot_syntax: bool,
@@ -79,6 +78,7 @@ pub struct ASTElement {
     pub processed: bool,
     pub ref_val: Option<String>,
     pub ref_in_for: bool,
+    pub ns: Option<&'static str>,
 
     pub component: bool,
     pub inline_template: bool,
@@ -145,6 +145,7 @@ pub fn create_ast_element(token: Token, kind: ASTElementKind, is_dev: bool) -> A
 
         is_dev,
         ref_in_for: false,
+        ns: None,
         component: false,
         inline_template: false,
         attrs: vec![],

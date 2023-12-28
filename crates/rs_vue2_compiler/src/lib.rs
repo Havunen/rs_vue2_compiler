@@ -1,26 +1,30 @@
-mod ast_tree;
+pub mod ast_tree;
 mod directives_model;
 mod filter_parser;
 mod helpers;
+mod text_parser;
 mod uni_codes;
 mod util;
-mod text_parser;
+mod web;
 
 extern crate lazy_static;
 
-use std::cell::{RefCell, RefMut};
-use crate::ast_tree::{create_ast_element, ASTElement, ASTElementKind, ASTTree, IfCondition, ASTNode};
+use crate::ast_tree::{
+    create_ast_element, ASTElement, ASTElementKind, ASTNode, ASTTree, IfCondition,
+};
+use crate::text_parser::parse_text;
 use crate::uni_codes::{UC_TYPE, UC_V_FOR};
 use crate::util::{get_attribute, has_attribute};
+use crate::web::element::get_namespace;
 use lazy_static::lazy_static;
 use regex::Regex;
 use rs_html_parser::{Parser, ParserOptions};
 use rs_html_parser_tokenizer::TokenizerOptions;
 use rs_html_parser_tokens::{Token, TokenKind};
+use std::cell::{RefCell, RefMut};
 use std::collections::VecDeque;
 use std::rc::Rc;
 use unicase_collections::unicase_btree_map::UniCaseBTreeMap;
-use crate::text_parser::parse_text;
 
 lazy_static! {
     static ref INVALID_ATTRIBUTE_RE: Regex = Regex::new(r##"/[\s"'<>\/=]/"##).unwrap();
@@ -49,6 +53,8 @@ pub struct CompilerOptions {
     pub is_ssr: bool,
 
     pub is_pre_tag: Option<fn(tag: &str) -> bool>,
+
+    pub get_namespace: Option<fn(tag: &str) -> Option<&'static str>>,
 }
 
 fn is_forbidden_tag(el: &Token) -> bool {
@@ -72,11 +78,15 @@ fn is_forbidden_tag(el: &Token) -> bool {
 }
 
 pub struct VueParser {
-    options: CompilerOptions,
+    dev: bool,
+    is_ssr: bool,
+    is_pre_tag: fn(tag: &str) -> bool,
 
     in_v_pre: bool,
     in_pre: bool,
     warned: bool,
+
+    get_namespace: fn(tag: &str) -> Option<&'static str>,
 }
 
 const PARSER_OPTIONS: ParserOptions = ParserOptions {
@@ -90,10 +100,13 @@ const PARSER_OPTIONS: ParserOptions = ParserOptions {
 impl VueParser {
     pub fn new(options: CompilerOptions) -> VueParser {
         VueParser {
-            options,
+            dev: options.dev,
+            is_pre_tag: options.is_pre_tag.unwrap_or(|_| false),
+            is_ssr: options.is_ssr,
             in_v_pre: false,
             in_pre: false,
             warned: false,
+            get_namespace: options.get_namespace.unwrap_or(get_namespace),
         }
     }
 
@@ -119,20 +132,13 @@ impl VueParser {
         }
     }
 
-    fn platform_is_pre_tag(&mut self, tag: &str) -> bool {
-        if let Some(pre_tag_fn) = self.options.is_pre_tag {
-            return pre_tag_fn(tag);
-        }
-
-        return false;
-    }
-
     pub fn parse(&mut self, template: &str) -> ASTTree {
         let parser = Parser::new(template, &PARSER_OPTIONS);
-        let is_dev = self.options.dev;
+        let is_dev = self.dev;
         let mut root_tree: ASTTree = ASTTree::new(is_dev);
         let mut stack: VecDeque<usize> = VecDeque::new();
         let mut current_parent_id = 0;
+        let mut current_namespace: Option<&'static str> = None;
 
         for token in parser {
             match token.kind {
@@ -143,6 +149,17 @@ impl VueParser {
                     );
                     let mut node = node_rc.borrow_mut();
                     root_tree.set(node.id, node_rc.clone());
+
+                    let ns = if let Some(parent_ns) = current_namespace {
+                        Some(parent_ns)
+                    } else {
+                        (self.get_namespace)(&node.el.token.data)
+                    };
+
+                    if let Some(namespace) = ns {
+                        node.el.ns = Some(namespace);
+                        current_namespace = Some(namespace);
+                    }
 
                     if is_dev {
                         if let Some(attrs) = &node.el.token.attrs {
@@ -156,7 +173,7 @@ impl VueParser {
                         }
                     }
 
-                    if is_forbidden_tag(&node.el.token) && !self.options.is_ssr {
+                    if is_forbidden_tag(&node.el.token) && !self.is_ssr {
                         node.el.forbidden = true;
 
                         if is_dev {
@@ -179,7 +196,7 @@ impl VueParser {
                             self.in_v_pre = true;
                         }
                     }
-                    if self.platform_is_pre_tag(&node.el.token.data) {
+                    if (self.is_pre_tag)(&node.el.token.data) {
                         self.in_pre = true;
                     }
                     if self.in_v_pre {
@@ -275,7 +292,7 @@ impl VueParser {
                                     if node.el.pre {
                                         self.in_v_pre = false
                                     }
-                                    if self.platform_is_pre_tag(&node.el.token.data) {
+                                    if (self.is_pre_tag)(&node.el.token.data) {
                                         self.in_pre = false
                                     }
 
