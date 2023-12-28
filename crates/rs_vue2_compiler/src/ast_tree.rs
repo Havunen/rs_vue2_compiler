@@ -26,19 +26,19 @@ pub struct AttrItem {
 
 #[derive(Debug)]
 pub struct Handler {
-    value: String,
-    dynamic: bool,
-    modifiers: UniCaseBTreeSet,
+    pub value: String,
+    pub dynamic: bool,
+    pub modifiers: UniCaseBTreeSet,
 }
 
 #[derive(Debug)]
 pub struct Directive {
-    name: String,
-    raw_name: String,
-    value: String,
-    arg: Option<String>,
-    is_dynamic_arg: bool,
-    modifiers: UniCaseBTreeSet,
+    pub name: String,
+    pub raw_name: String,
+    pub value: String,
+    pub arg: Option<String>,
+    pub is_dynamic_arg: bool,
+    pub modifiers: UniCaseBTreeSet,
 }
 
 #[derive(Debug)]
@@ -159,12 +159,13 @@ pub struct ASTNode {
     pub id: usize,
     pub el: ASTElement,
     pub children: Vec<Rc<RefCell<ASTNode>>>,
+    pub parent_id: usize,
     pub parent: Option<Weak<RefCell<ASTNode>>>,
 }
 
 #[derive(Debug)]
 pub struct ASTTree {
-    pub root: Rc<RefCell<ASTNode>>,
+    pub wrapper: Rc<RefCell<ASTNode>>,
     counter: Cell<usize>,
     nodes: HashMap<usize, Rc<RefCell<ASTNode>>>,
 }
@@ -180,12 +181,13 @@ impl ASTTree {
                 is_implied: false,
             }, ASTElementKind::Root, is_dev),
             children: Default::default(),
+            parent_id: 0,
             parent: None,
         }));
 
         let mut tree = ASTTree {
             counter: Cell::new(0),
-            root: Rc::clone(&node),
+            wrapper: Rc::clone(&node),
             nodes: Default::default(),
         };
 
@@ -196,12 +198,14 @@ impl ASTTree {
 
     pub fn create(&self, element: ASTElement, parent_id: usize) -> Rc<RefCell<ASTNode>> {
         let new_id = self.counter.get() + 1;
+        self.counter.set(new_id);
         let parent = self.get(parent_id).cloned().unwrap();
 
         let new_node = Rc::new(RefCell::new(ASTNode {
             id: new_id,
             el: element,
             parent: Some(Rc::downgrade(&parent)),
+            parent_id,
             children: vec![]
         }));
 
@@ -213,11 +217,15 @@ impl ASTTree {
     pub fn get(&self, id: usize) -> Option<&Rc<RefCell<ASTNode>>> {
         self.nodes.get(&id)
     }
+
+    pub fn set(&mut self, id: usize, node: Rc<RefCell<ASTNode>>) {
+        self.nodes.insert(id, node);
+    }
 }
 
 
 #[derive(Debug)]
-struct ForParseResult {
+pub struct ForParseResult {
     pub alias: String,
     pub for_value: String,
     pub iterator1: Option<String>,
@@ -881,7 +889,7 @@ Consider using an array of objects and use v-model on an object property instead
 
                 if is_some_and_ref(&modifiers_option, |modifiers| modifiers.contains("prop")) {
                     // TODO: (!el.component && platformMustUseProp(el.tag, el.attrsMap.type, name))
-                    self.insert_into_attrs(&name_str, &attr_value.0, attr_value.1, is_dynamic);
+                    self.insert_into_props(&name_str, &attr_value.0, attr_value.1, is_dynamic);
                 } else {
                     self.insert_into_attrs(&name_str, &attr_value.0, attr_value.1, is_dynamic);
                 }

@@ -9,7 +9,6 @@ extern crate lazy_static;
 
 use std::collections::VecDeque;
 use std::rc::Rc;
-use std::thread::current;
 use lazy_static::lazy_static;
 use regex::Regex;
 use rs_html_parser::{Parser, ParserOptions};
@@ -43,11 +42,11 @@ fn warn(message: &str) {
     println!("{}", message)
 }
 
-struct CompilerOptions {
-    dev: bool,
-    is_ssr: bool,
+pub struct CompilerOptions {
+    pub dev: bool,
+    pub is_ssr: bool,
 
-    is_pre_tag: Option<fn(tag: &str) -> bool>
+    pub is_pre_tag: Option<fn(tag: &str) -> bool>
 }
 
 
@@ -129,7 +128,7 @@ impl VueParser {
     pub fn parse(&mut self, template: &str) -> ASTTree {
         let parser = Parser::new(template, &PARSER_OPTIONS);
         let is_dev = self.options.dev;
-        let root_tree: ASTTree = ASTTree::new(is_dev);
+        let mut root_tree: ASTTree = ASTTree::new(is_dev);
         let mut stack: VecDeque<usize> = VecDeque::new();
         let mut current_parent_id = 0;
 
@@ -141,6 +140,7 @@ impl VueParser {
                         current_parent_id
                     );
                     let mut node = node_rc.borrow_mut();
+                    root_tree.set(node.id, node_rc.clone());
 
                     if is_dev {
                         if let Some(attrs) = &node.el.token.attrs {
@@ -217,7 +217,7 @@ impl VueParser {
                                 warn("Component template should contain exactly one root element. If you are using v-if on multiple elements, use v-else-if to chain them instead.");
                             }
                         }
-                        let mut current_parent = root_tree.get(current_parent_id).unwrap().borrow_mut();
+                        let mut current_parent = root_tree.get(node.parent_id).unwrap().borrow_mut();
                         if /* current_parent exists always && */ !node.el.forbidden {
                             if node.el.else_if_val.is_some() || node.el.is_else {
                                 node.process_if_conditions(current_parent.children.as_mut());
@@ -228,7 +228,7 @@ impl VueParser {
                                     // find it as the prev node.
                                     let slot_target = node.el.slot_target.clone();
                                     let id = node.id;
-                                    let mut scoped_slots = node.el.scoped_slots.get_or_insert(UniCaseBTreeMap::new());
+                                    let scoped_slots = node.el.scoped_slots.get_or_insert(UniCaseBTreeMap::new());
                                     let name = if let Some(slot_target) = slot_target {
                                         slot_target
                                     } else {
@@ -257,7 +257,7 @@ impl VueParser {
 
                                     // remove trailing whitespace node again
 
-                                    if (node.el.pre) {
+                                    if node.el.pre {
                                         self.in_v_pre = false
                                     }
                                     if self.platform_is_pre_tag(&node.el.token.data) {
@@ -314,6 +314,7 @@ impl VueParser {
                             create_ast_element(token, ASTElementKind::Text, is_dev),
                             current_parent_id
                         );
+                        root_tree.set(node_rc.borrow().id, node_rc.clone());
                         // if !self.in_pre && self.whitespace_option.as_ref().unwrap() == "condense" {
                         //     // condense consecutive whitespaces into single space
                         //     text = text.replace(whitespace_re, " ");
