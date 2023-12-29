@@ -48,9 +48,20 @@ fn warn(message: &str) {
     println!("{}", message)
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum WhitespaceHandling {
+    Condense,
+    Preserve,
+    Ignore,
+}
+
+#[derive(Debug)]
 pub struct CompilerOptions {
     pub dev: bool,
     pub is_ssr: bool,
+
+    pub preserve_comments: bool,
+    pub whitespace_handling: WhitespaceHandling,
 
     pub is_pre_tag: Option<fn(tag: &str) -> bool>,
 
@@ -82,11 +93,16 @@ pub struct VueParser {
     is_ssr: bool,
     is_pre_tag: fn(tag: &str) -> bool,
 
+    preserve_comments: bool,
+    whitespace_handling: WhitespaceHandling,
+
     in_v_pre: bool,
     in_pre: bool,
     warned: bool,
 
     get_namespace: fn(tag: &str) -> Option<&'static str>,
+
+    active_text: Option<String>,
 }
 
 const PARSER_OPTIONS: ParserOptions = ParserOptions {
@@ -107,6 +123,9 @@ impl VueParser {
             in_pre: false,
             warned: false,
             get_namespace: options.get_namespace.unwrap_or(get_namespace),
+            whitespace_handling: options.whitespace_handling,
+            preserve_comments: false,
+            active_text: None,
         }
     }
 
@@ -143,6 +162,8 @@ impl VueParser {
         for token in parser {
             match token.kind {
                 TokenKind::OpenTag => {
+                    self.end_text_node(&mut root_tree, current_parent_id);
+
                     let node_rc = root_tree.create(
                         create_ast_element(token, ASTElementKind::Element, is_dev),
                         current_parent_id,
@@ -212,6 +233,8 @@ impl VueParser {
                     stack.push_back(node_id);
                 }
                 TokenKind::CloseTag => {
+                    self.end_text_node(&mut root_tree, current_parent_id);
+
                     let current_open_tag_id = stack.pop_back();
                     current_parent_id = *stack.back().unwrap_or(&(0usize));
 
@@ -308,7 +331,12 @@ impl VueParser {
                     }
                 }
                 TokenKind::Comment => {
+                    if !self.preserve_comments {
+                        continue;
+                    }
                     if current_parent_id != 0 {
+                        self.end_text_node(&mut root_tree, current_parent_id);
+
                         let node_rc = root_tree.create(
                             create_ast_element(token, ASTElementKind::Text, is_dev),
                             current_parent_id,
@@ -321,7 +349,13 @@ impl VueParser {
                     }
                 }
                 TokenKind::CommentEnd => {
+                    if !self.preserve_comments {
+                        continue;
+                    }
+
                     if current_parent_id != 0 {
+                        self.end_text_node(&mut root_tree, current_parent_id);
+
                         let _unused_open_comment_id = stack.pop_back();
                         current_parent_id = *stack.back().unwrap_or(&(0usize));
                     }
@@ -336,86 +370,14 @@ impl VueParser {
                         continue;
                     }
 
-                    // let children = &mut self.current_parent.as_mut().unwrap().children;
-                    // let mut text = if self.in_pre || text.trim().is_empty() {
-                    //     if is_text_tag(self.current_parent.as_ref().unwrap()) {
-                    //         text
-                    //     } else {
-                    //         decode_html_cached(text)
-                    //     }
-                    // } else if !children.is_empty() {
-                    //     // remove the whitespace-only node right after an opening tag
-                    //     String::new()
-                    // } else if self.whitespace_option.is_some() {
-                    //     match self.whitespace_option.as_ref().unwrap().as_str() {
-                    //         "condense" => {
-                    //             // in condense mode, remove the whitespace node if it contains
-                    //             // line break, otherwise condense to a single space
-                    //             if text.contains('\n') { String::new() } else { " ".to_string() }
-                    //         },
-                    //         _ => " ".to_string(),
-                    //     }
-                    // } else {
-                    //     if self.preserve_whitespace { " ".to_string() } else { String::new() }
-                    // };
+                    let text = self.condense_whitespace(&root_tree, current_parent_id, &token.data);
 
-                    if !token.data.is_empty() {
-                        let parse_text_result: Option<(String, Vec<String>)>;
-
-                        if !self.in_v_pre {
-                            parse_text_result = parse_text(&*token.data, None);
+                    if !text.is_empty() {
+                        if let Some(active_text) = &mut self.active_text {
+                            *active_text += &text;
                         } else {
-                            parse_text_result = None;
+                            self.active_text = Some(text);
                         }
-
-                        let node_rc: Rc<RefCell<ASTNode>>;
-                        let mut node: RefMut<ASTNode>;
-                        if let Some(expression_text) = parse_text_result {
-                            node_rc = root_tree.create(
-                                create_ast_element(token, ASTElementKind::Expression, is_dev),
-                                current_parent_id,
-                            );
-                            node = node_rc.borrow_mut();
-                            node.el.expression = Some(expression_text.0);
-                            node.el.tokens = Some(expression_text.1);
-                        } else {
-                            node_rc = root_tree.create(
-                                create_ast_element(token, ASTElementKind::Text, is_dev),
-                                current_parent_id,
-                            );
-                            node = node_rc.borrow_mut();
-                        }
-
-                        root_tree.set(node.id, node_rc.clone());
-                        // if !self.in_pre && self.whitespace_option.as_ref().unwrap() == "condense" {
-                        //     // condense consecutive whitespaces into single space
-                        //     text = text.replace(whitespace_re, " ");
-                        // }
-                        // let mut child: Option<ASTNode> = None;
-                        // if !self.in_v_pre && text != " " {
-                        //     if let Some(res) = parse_text(text.clone(), self.delimiters.clone()) {
-                        //         child = Some(ASTNode {
-                        //             node_type: 2,
-                        //             expression: Some(res.expression),
-                        //             tokens: Some(res.tokens),
-                        //             text: Some(text.clone()),
-                        //             ..Default::default()
-                        //         });
-                        //     }
-                        // } else if text != " " || children.is_empty() || children.last().unwrap().text.as_ref().unwrap() != " " {
-                        //     child = Some(ASTNode {
-                        //         node_type: 3,
-                        //         text: Some(text.clone()),
-                        //         ..Default::default()
-                        //     });
-                        // }
-                        // if let Some(mut child_node) = child {
-                        //     if cfg!(debug_assertions) && self.options.output_source_range {
-                        //         child_node.start = start;
-                        //         child_node.end = end;
-                        //     }
-                        //     children.push(child_node);
-                        // }
                     }
                 }
                 _ => {}
@@ -423,5 +385,83 @@ impl VueParser {
         }
 
         root_tree
+    }
+
+    fn end_text_node(&mut self, root_tree: &mut ASTTree, current_parent_id: usize) {
+        if let Some(active_text) = &self.active_text {
+            let parse_text_result: Option<(String, Vec<String>)>;
+
+            if !self.in_v_pre {
+                parse_text_result = parse_text(&active_text, None);
+            } else {
+                parse_text_result = None;
+            }
+
+            let final_text = if self.whitespace_handling == WhitespaceHandling::Condense {
+                WHITESPACE_RE.replace_all(active_text, " ").to_string()
+            } else {
+                active_text.to_string()
+            };
+
+            let node_rc: Rc<RefCell<ASTNode>>;
+            let mut node: RefMut<ASTNode>;
+            if let Some(expression_text) = parse_text_result {
+                node_rc = root_tree.create(
+                    create_ast_element(Token {
+                        data: final_text.into_boxed_str(),
+                        attrs: None,
+                        kind: TokenKind::Text,
+                        is_implied: false,
+                    }, ASTElementKind::Expression, self.dev),
+                    current_parent_id,
+                );
+                node = node_rc.borrow_mut();
+                node.el.expression = Some(expression_text.0);
+                node.el.tokens = Some(expression_text.1);
+            } else {
+                node_rc = root_tree.create(
+                    create_ast_element(Token {
+                        data: final_text.into_boxed_str(),
+                        attrs: None,
+                        kind: TokenKind::Text,
+                        is_implied: false,
+                    }, ASTElementKind::Text, self.dev),
+                    current_parent_id,
+                );
+                node = node_rc.borrow_mut();
+            }
+
+            root_tree.set(node.id, node_rc.clone());
+
+            self.active_text = None;
+        }
+    }
+
+    fn condense_whitespace(&mut self, root_tree: &ASTTree, current_parent_id: usize, text: &str) -> String {
+        return if self.in_pre {
+            text.to_string()
+        } else if !text.trim().is_empty() {
+            if self.whitespace_handling == WhitespaceHandling::Condense {
+                WHITESPACE_RE.replace_all(text, " ").to_string()
+            } else {
+                text.to_string()
+            }
+        }
+        else if root_tree.get(current_parent_id).unwrap().borrow().children.is_empty() {
+            // remove the whitespace-only node right after an opening tag
+            String::new()
+        } else if self.whitespace_handling == WhitespaceHandling::Condense {
+            // in condense mode, remove the whitespace node if it contains
+            // line break, otherwise condense to a single space
+            if LINE_BREAK_RE.is_match(text) {
+                String::new()
+            } else {
+                " ".to_string()
+            }
+        } else if self.whitespace_handling == WhitespaceHandling::Preserve {
+            " ".to_string()
+        } else {
+            String::new()
+        };
     }
 }

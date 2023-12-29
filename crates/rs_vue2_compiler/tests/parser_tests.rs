@@ -1,13 +1,15 @@
 #[cfg(test)]
 mod tests {
     use rs_vue2_compiler::ast_tree::ASTTree;
-    use rs_vue2_compiler::{CompilerOptions, VueParser};
+    use rs_vue2_compiler::{CompilerOptions, VueParser, WhitespaceHandling};
     use std::rc::Rc;
 
     fn parse(template: &str) -> ASTTree {
         let mut parser = VueParser::new(CompilerOptions {
             dev: true,
             is_ssr: false,
+            preserve_comments: false,
+            whitespace_handling: WhitespaceHandling::Condense,
             is_pre_tag: None,
             get_namespace: None,
         });
@@ -180,7 +182,7 @@ mod tests {
      */
 
     // Condensing white space could be moved to the html parser
-    #[ignore]
+    #[test]
     fn remove_duplicate_whitespace_text_nodes_caused_by_comments() {
         let ast = parse("<div><a></a> <!----> <a></a></div>");
 

@@ -50,7 +50,7 @@ pub struct IfCondition {
     pub block_id: usize,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum ASTElementKind {
     Root = 0,
     Element = 1,
