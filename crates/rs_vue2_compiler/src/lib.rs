@@ -35,7 +35,7 @@ lazy_static! {
     static ref ARG_RE: Regex = Regex::new(r":(.*)$").unwrap();
     static ref BIND_RE: Regex = Regex::new(r"^:|^\.|^v-bind:").unwrap();
     static ref PROP_BIND_RE: Regex = Regex::new(r"^\.").unwrap();
-    static ref MODIFIER_RE: Regex = Regex::new(r"\.[^.\]]+(?=[^\]]*$)").unwrap();
+    static ref MODIFIER_RE: Regex = Regex::new(r"\.[^.\]]+").unwrap(); // This regex has been refactored not to include look-ahead
     static ref SLOT_RE: Regex = Regex::new(r"^v-slot(:|$)|^#").unwrap();
     static ref LINE_BREAK_RE: Regex = Regex::new(r"[\r\n]").unwrap();
     static ref WHITESPACE_RE: Regex = Regex::new(r"[ \f\t\r\n]+").unwrap();

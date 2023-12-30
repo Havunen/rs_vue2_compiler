@@ -264,14 +264,23 @@ mod tests {
 
     #[test]
     fn remove_text_nodes_between_v_if_conditions() {
-        let ast = parse("<div><div v-if=\"1\"></div> <div v-else-if=\"2\"></div> <div v-else></div> <span></span></div>");
+        let ast = parse("<div><foo v-if=\"1\"></foo> <section v-else-if=\"2\"></section> <article v-else></article> <span></span></div>");
 
         let wrapper = ast.wrapper.borrow();
         let root = wrapper.children[0].borrow();
         assert_eq!(root.children.len(), 3);
 
-        assert_eq!(root.children[0].borrow().el.token.data, Box::from("div"));
-        assert_eq!(root.children[0].borrow().el.if_conditions.as_ref().unwrap().len(), 3);
+        let child_1 = root.children[0].borrow();
+        assert_eq!(child_1.el.token.data, Box::from("foo"));
+        assert_eq!(child_1.el.if_conditions.as_ref().unwrap().len(), 3);
+
+        let if_conditions = child_1.el.if_conditions.as_ref().unwrap();
+        assert_eq!(if_conditions[0].block_id, child_1.id);
+        assert_eq!(if_conditions[0].exp.as_ref().unwrap(), "1");
+        assert_eq!(if_conditions[1].block_id, child_1.id);
+        assert_eq!(if_conditions[1].exp.as_ref().unwrap(), "2");
+        assert_eq!(if_conditions[2].block_id, child_1.id);
+        assert_eq!(if_conditions[2].exp, None);
 
         let child_2 = root.children[1].borrow();
         assert_eq!(child_2.el.token.data, Box::from(" "));
