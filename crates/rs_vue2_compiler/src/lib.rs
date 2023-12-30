@@ -239,7 +239,8 @@ impl VueParser {
                     current_parent_id = *stack.back().unwrap_or(&(0usize));
 
                     if let Some(open_tag_id) = current_open_tag_id {
-                        let mut node = root_tree.get(open_tag_id).unwrap().borrow_mut();
+                        let node_ptr = root_tree.get(open_tag_id).unwrap();
+                        let mut node = node_ptr.borrow_mut();
                         // trim white space ??
 
                         if !self.in_v_pre && !node.el.processed {
@@ -253,7 +254,6 @@ impl VueParser {
                                 if is_dev {
                                     self.check_root_constraints(&node.el);
                                 }
-                                // TODO: What should happen if there is v-else ??? eh?
                                 let else_if_val = node.el.else_if_val.clone();
                                 let node_id = node.id;
 
@@ -267,18 +267,20 @@ impl VueParser {
                         }
                         let mut current_parent =
                             root_tree.get(node.parent_id).unwrap().borrow_mut();
-                        if
-                        /* current_parent exists always && */
-                        !node.el.forbidden {
+
+                        // always take root node, even if forbidden
+                        if !node.el.forbidden || node.id == 1 {
                             if node.el.else_if_val.is_some() || node.el.is_else {
-                                node.process_if_conditions(current_parent.children.as_mut());
+                                node.process_if_conditions(
+                                    node_ptr,
+                                    current_parent.children.as_mut(),
+                                );
                             } else {
                                 if node.el.slot_scope.is_some() {
                                     // scoped slot
                                     // keep it in the children list so that v-else(-if) conditions can
                                     // find it as the prev node.
                                     let slot_target = node.el.slot_target.clone();
-                                    let id = node.id;
                                     let scoped_slots =
                                         node.el.scoped_slots.get_or_insert(UniCaseBTreeMap::new());
                                     let name = if let Some(slot_target) = slot_target {
@@ -287,47 +289,49 @@ impl VueParser {
                                         "\"default\"".to_string()
                                     };
 
-                                    scoped_slots.insert(name, root_tree.get(id).unwrap().clone());
+                                    scoped_slots.insert(name, node_ptr.clone());
+                                }
 
-                                    // TODO: This is most likely unnecessary, verify later
-                                    if let Some(parent) = node.parent.as_ref().unwrap().upgrade() {
-                                        if parent.borrow().id != current_parent_id {
-                                            println!("parent id does not match current parent id");
-                                        }
-                                    }
+                                let children: &mut Vec<Rc<RefCell<ASTNode>>> =
+                                    current_parent.children.as_mut();
+                                children.push(node_ptr.clone());
 
-                                    // final children cleanup
-                                    // filter out scoped slots
-                                    node.children = node
-                                        .children
-                                        .iter()
-                                        .map(|child| Rc::clone(child))
-                                        .filter_map(|child_rc| {
-                                            let child = child_rc.borrow_mut();
-                                            if child.el.slot_scope.is_none() {
-                                                Some(Rc::clone(&child_rc))
-                                            } else {
-                                                None
-                                            }
-                                        })
-                                        .collect::<Vec<_>>();
-
-                                    // remove trailing whitespace node again
-
-                                    if node.el.pre {
-                                        self.in_v_pre = false
-                                    }
-                                    if (self.is_pre_tag)(&node.el.token.data) {
-                                        self.in_pre = false
-                                    }
-
-                                    // apply post-transforms
-                                    // for (let i = 0; i < postTransforms.length; i++) {
-                                    //     postTransforms[i](element, options)
-                                    // }
+                                // TODO: This is most likely unnecessary, verify later
+                                if current_parent.id != current_parent_id {
+                                    println!("parent id does not match current parent id");
                                 }
                             }
                         }
+
+                        // final children cleanup
+                        // filter out scoped slots
+                        node.children = node
+                            .children
+                            .iter()
+                            .map(|child| Rc::clone(child))
+                            .filter_map(|child_rc| {
+                                let child = child_rc.borrow_mut();
+                                if child.el.slot_scope.is_none() {
+                                    Some(Rc::clone(&child_rc))
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect::<Vec<_>>();
+
+                        // remove trailing whitespace node again
+
+                        if node.el.pre {
+                            self.in_v_pre = false
+                        }
+                        if (self.is_pre_tag)(&node.el.token.data) {
+                            self.in_pre = false
+                        }
+
+                        // apply post-transforms
+                        // for (let i = 0; i < postTransforms.length; i++) {
+                        //     postTransforms[i](element, options)
+                        // }
                     }
                 }
                 TokenKind::Comment => {
@@ -390,54 +394,74 @@ impl VueParser {
     fn end_text_node(&mut self, root_tree: &mut ASTTree, current_parent_id: usize) {
         if let Some(active_text) = &self.active_text {
             let parse_text_result: Option<(String, Vec<String>)>;
-
-            if !self.in_v_pre {
-                parse_text_result = parse_text(&active_text, None);
-            } else {
-                parse_text_result = None;
-            }
-
             let final_text = if self.whitespace_handling == WhitespaceHandling::Condense {
                 WHITESPACE_RE.replace_all(active_text, " ").to_string()
             } else {
                 active_text.to_string()
             };
 
-            let node_rc: Rc<RefCell<ASTNode>>;
-            let mut node: RefMut<ASTNode>;
-            if let Some(expression_text) = parse_text_result {
-                node_rc = root_tree.create(
-                    create_ast_element(Token {
-                        data: final_text.into_boxed_str(),
-                        attrs: None,
-                        kind: TokenKind::Text,
-                        is_implied: false,
-                    }, ASTElementKind::Expression, self.dev),
-                    current_parent_id,
-                );
-                node = node_rc.borrow_mut();
-                node.el.expression = Some(expression_text.0);
-                node.el.tokens = Some(expression_text.1);
-            } else {
-                node_rc = root_tree.create(
-                    create_ast_element(Token {
-                        data: final_text.into_boxed_str(),
-                        attrs: None,
-                        kind: TokenKind::Text,
-                        is_implied: false,
-                    }, ASTElementKind::Text, self.dev),
-                    current_parent_id,
-                );
-                node = node_rc.borrow_mut();
-            }
+            if !&final_text.is_empty() {
+                if !self.in_v_pre {
+                    parse_text_result = parse_text(&final_text, None);
+                } else {
+                    parse_text_result = None;
+                }
 
-            root_tree.set(node.id, node_rc.clone());
+                let node_rc: Rc<RefCell<ASTNode>>;
+                let mut node: RefMut<ASTNode>;
+                if let Some(expression_text) = parse_text_result {
+                    node_rc = root_tree.create(
+                        create_ast_element(
+                            Token {
+                                data: final_text.into_boxed_str(),
+                                attrs: None,
+                                kind: TokenKind::Text,
+                                is_implied: false,
+                            },
+                            ASTElementKind::Expression,
+                            self.dev,
+                        ),
+                        current_parent_id,
+                    );
+                    node = node_rc.borrow_mut();
+                    node.el.expression = Some(expression_text.0);
+                    node.el.tokens = Some(expression_text.1);
+                } else {
+                    node_rc = root_tree.create(
+                        create_ast_element(
+                            Token {
+                                data: final_text.into_boxed_str(),
+                                attrs: None,
+                                kind: TokenKind::Text,
+                                is_implied: false,
+                            },
+                            ASTElementKind::Text,
+                            self.dev,
+                        ),
+                        current_parent_id,
+                    );
+                    node = node_rc.borrow_mut();
+                }
+
+                root_tree
+                    .get(current_parent_id)
+                    .unwrap()
+                    .borrow_mut()
+                    .children
+                    .push(node_rc.clone());
+                root_tree.set(node.id, node_rc.clone());
+            }
 
             self.active_text = None;
         }
     }
 
-    fn condense_whitespace(&mut self, root_tree: &ASTTree, current_parent_id: usize, text: &str) -> String {
+    fn condense_whitespace(
+        &mut self,
+        root_tree: &ASTTree,
+        current_parent_id: usize,
+        text: &str,
+    ) -> String {
         return if self.in_pre {
             text.to_string()
         } else if !text.trim().is_empty() {
@@ -446,8 +470,13 @@ impl VueParser {
             } else {
                 text.to_string()
             }
-        }
-        else if root_tree.get(current_parent_id).unwrap().borrow().children.is_empty() {
+        } else if root_tree
+            .get(current_parent_id)
+            .unwrap()
+            .borrow()
+            .children
+            .is_empty()
+        {
             // remove the whitespace-only node right after an opening tag
             String::new()
         } else if self.whitespace_handling == WhitespaceHandling::Condense {

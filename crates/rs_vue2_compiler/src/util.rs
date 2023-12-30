@@ -1,6 +1,6 @@
+use crate::MODIFIER_RE;
 use rs_html_parser_tokenizer_tokens::QuoteType;
 use rs_html_parser_tokens::Token;
-use crate::MODIFIER_RE;
 
 pub fn has_attribute(token: &Token, str: &str) -> bool {
     if let Some(attrs) = &token.attrs {
@@ -22,10 +22,6 @@ pub fn get_attribute<'a>(token: &'a Token, str: &str) -> &'a Option<(Box<str>, Q
     }
 
     &None
-}
-
-pub fn is_pre_tag_default(tag: &str) -> bool {
-    tag.eq_ignore_ascii_case("pre")
 }
 
 pub fn prepend_modifier_marker(symbol: char, name: &str, dynamic: bool) -> String {

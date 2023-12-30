@@ -231,36 +231,35 @@ mod tests {
 
     /*
 
-      it('not contain root element', () => {
-    parse('hello world', baseOptions)
-    expect(
-      'Component template requires a root element, rather than just text'
-    ).toHaveBeenWarned()
-  })
+        it('not contain root element', () => {
+      parse('hello world', baseOptions)
+      expect(
+        'Component template requires a root element, rather than just text'
+      ).toHaveBeenWarned()
+    })
 
-  it('warn text before root element', () => {
-    parse('before root {{ interpolation }}<div></div>', baseOptions)
-    expect(
-      'text "before root {{ interpolation }}" outside root element will be ignored.'
-    ).toHaveBeenWarned()
-  })
+    it('warn text before root element', () => {
+      parse('before root {{ interpolation }}<div></div>', baseOptions)
+      expect(
+        'text "before root {{ interpolation }}" outside root element will be ignored.'
+      ).toHaveBeenWarned()
+    })
 
-  it('warn text after root element', () => {
-    parse('<div></div>after root {{ interpolation }}', baseOptions)
-    expect(
-      'text "after root {{ interpolation }}" outside root element will be ignored.'
-    ).toHaveBeenWarned()
-  })
+    it('warn text after root element', () => {
+      parse('<div></div>after root {{ interpolation }}', baseOptions)
+      expect(
+        'text "after root {{ interpolation }}" outside root element will be ignored.'
+      ).toHaveBeenWarned()
+    })
 
-  it('warn multiple root elements', () => {
-    parse('<div></div><div></div>', baseOptions)
-    expect(
-      'Component template should contain exactly one root element'
-    ).toHaveBeenWarned()
-  })
+    it('warn multiple root elements', () => {
+      parse('<div></div><div></div>', baseOptions)
+      expect(
+        'Component template should contain exactly one root element'
+      ).toHaveBeenWarned()
+    })
 
-     */
-
+       */
 
     #[test]
     fn remove_text_nodes_between_v_if_conditions() {
@@ -275,11 +274,11 @@ mod tests {
         assert_eq!(child_1.el.if_conditions.as_ref().unwrap().len(), 3);
 
         let if_conditions = child_1.el.if_conditions.as_ref().unwrap();
-        assert_eq!(if_conditions[0].block_id, child_1.id);
+        assert_eq!(if_conditions[0].block_id, 2);
         assert_eq!(if_conditions[0].exp.as_ref().unwrap(), "1");
-        assert_eq!(if_conditions[1].block_id, child_1.id);
+        assert_eq!(if_conditions[1].block_id, 4);
         assert_eq!(if_conditions[1].exp.as_ref().unwrap(), "2");
-        assert_eq!(if_conditions[2].block_id, child_1.id);
+        assert_eq!(if_conditions[2].block_id, 6);
         assert_eq!(if_conditions[2].exp, None);
 
         let child_2 = root.children[1].borrow();

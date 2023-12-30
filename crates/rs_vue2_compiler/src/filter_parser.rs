@@ -61,10 +61,10 @@ pub fn parse_filters((expr, quote_type): &(Box<str>, QuoteType)) -> String {
                 _ => (),
             }
             if c == '/' {
-                let mut j = i - 1;
+                let mut j: i32 = i as i32 - 1;
                 let mut p: char = '0';
                 while j >= 0 {
-                    p = expr.chars().nth(j).unwrap();
+                    p = expr.chars().nth(j as usize).unwrap();
                     if p != ' ' {
                         break;
                     }

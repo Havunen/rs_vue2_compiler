@@ -230,7 +230,7 @@ impl ASTTree {
             children: vec![],
         }));
 
-        parent.borrow_mut().children.push(Rc::clone(&new_node));
+        // parent.borrow_mut().children.push(Rc::clone(&new_node));
 
         new_node
     }
@@ -486,13 +486,22 @@ impl ASTNode {
         self.el.if_conditions.as_mut().unwrap().push(if_condition);
     }
 
-    fn find_prev_element<'a>(&'a self, children: &'a mut Vec<Rc<RefCell<ASTNode>>>) -> Option<&'a Rc<RefCell<ASTNode>>> {
+    fn find_prev_element<'a>(
+        &'a self,
+        self_ptr: &Rc<RefCell<ASTNode>>,
+        children: &'a mut Vec<Rc<RefCell<ASTNode>>>,
+    ) -> Option<&'a Rc<RefCell<ASTNode>>> {
         if children.len() == 0 {
             return None;
         }
 
+        let self_index = children
+            .iter()
+            .position(|child| Rc::ptr_eq(child, self_ptr))
+            .unwrap_or(children.len());
+
         // iterate from end to start to drop elements without related if branches
-        for i in (0..children.len() - 1).rev() {
+        for i in (0..self_index).rev() {
             if children[i].borrow().el.kind == ASTElementKind::Element {
                 return Some(&children[i]);
             }
@@ -510,8 +519,12 @@ impl ASTNode {
         return None;
     }
 
-    pub fn process_if_conditions(&mut self, parent_children: &mut Vec<Rc<RefCell<ASTNode>>>) {
-        let prev = &self.find_prev_element(parent_children);
+    pub fn process_if_conditions(
+        &mut self,
+        self_ptr: &Rc<RefCell<ASTNode>>,
+        parent_children: &mut Vec<Rc<RefCell<ASTNode>>>,
+    ) {
+        let prev = &self.find_prev_element(self_ptr, parent_children);
         if let Some(prev_element) = prev {
             if prev_element.borrow().el.if_val.is_some() {
                 prev_element.borrow_mut().add_if_condition(IfCondition {
@@ -660,7 +673,6 @@ impl ASTNode {
             }
 
             self.el.slot_scope = slot_scope_entry_value;
-
         } else {
             let slot_scope_entry_opt = self.get_and_remove_attr("slot-scope", false);
 
@@ -688,7 +700,12 @@ impl ASTNode {
             // only for non-scoped slots.
             if !self.el.token.data.eq_ignore_ascii_case("template") && !self.el.slot_scope.is_some()
             {
-                self.insert_into_attrs("slot", slot_target_entry.value.clone(), QuoteType::NoValue, false);
+                self.insert_into_attrs(
+                    "slot",
+                    slot_target_entry.value.clone(),
+                    QuoteType::NoValue,
+                    false,
+                );
             }
         }
 
@@ -1037,13 +1054,7 @@ Consider using an array of objects and use v-model on an object property instead
                 if is_dynamic {
                     name_str = name_str[1..name_str.len() - 1].to_string();
                 }
-                self.add_handler(
-                    &name_str,
-                    &attr_value,
-                    modifiers_option,
-                    false,
-                    is_dynamic,
-                );
+                self.add_handler(&name_str, &attr_value, modifiers_option, false, is_dynamic);
             } else {
                 let attr_value: Box<str>;
                 if let Some(val) = value {
@@ -1199,7 +1210,6 @@ Consider using an array of objects and use v-model on an object property instead
 }
 
 fn parse_modifiers(name: &str) -> Option<UniCaseBTreeSet> {
-
     let mut ret: Option<UniCaseBTreeSet> = None;
     for cap in MODIFIER_RE.captures_iter(name) {
         let matched_string = &cap[0];
