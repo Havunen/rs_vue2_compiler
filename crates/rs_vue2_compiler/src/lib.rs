@@ -5,8 +5,8 @@ mod helpers;
 mod text_parser;
 mod uni_codes;
 mod util;
-mod web;
 mod warn_logger;
+mod web;
 
 extern crate lazy_static;
 
@@ -16,6 +16,7 @@ use crate::ast_tree::{
 use crate::text_parser::parse_text;
 use crate::uni_codes::{UC_TYPE, UC_V_FOR};
 use crate::util::{get_attribute, has_attribute};
+use crate::warn_logger::WarnLogger;
 use crate::web::element::get_namespace;
 use lazy_static::lazy_static;
 use regex::Regex;
@@ -26,7 +27,6 @@ use std::cell::{RefCell, RefMut};
 use std::collections::VecDeque;
 use std::rc::Rc;
 use unicase_collections::unicase_btree_map::UniCaseBTreeMap;
-use crate::warn_logger::WarnLogger;
 
 lazy_static! {
     static ref INVALID_ATTRIBUTE_RE: Regex = Regex::new(r##"/[\s"'<>\/=]/"##).unwrap();
@@ -378,9 +378,8 @@ impl VueParser {
                         if is_dev {
                             if &token.data.as_ref() == &template {
                                 self.warn.call("Component template requires a root element, rather than just text.")
-                            }
-                            else {
-                                self.warn.call("text outside root element will be ignored..");
+                            } else {
+                                self.warn.call("text outside root element will be ignored.");
                             }
                         }
 
@@ -449,7 +448,7 @@ impl VueParser {
                                 kind: TokenKind::Text,
                                 is_implied: false,
                             },
-                            ASTElementKind::Text
+                            ASTElementKind::Text,
                         ),
                         current_parent_id,
                         self.dev,

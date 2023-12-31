@@ -1,8 +1,8 @@
 #[cfg(test)]
 mod tests {
-    use std::cell::RefCell;
     use rs_vue2_compiler::ast_tree::ASTTree;
     use rs_vue2_compiler::{CompilerOptions, VueParser, WhitespaceHandling};
+    use std::cell::RefCell;
     use std::rc::Rc;
 
     fn parse(template: &str) -> (ASTTree, Rc<RefCell<Vec<String>>>) {
@@ -18,7 +18,7 @@ mod tests {
             get_namespace: None,
             warn: Some(Box::new(move |msg: &str| {
                 warnings_clone.borrow_mut().push(msg.to_string());
-            }))
+            })),
         });
 
         (parser.parse(template), warnings)
@@ -142,7 +142,8 @@ mod tests {
         );
 
         // script
-        let (script_ast, _script_warnings) = parse("<script type=\"text/javascript\">alert(\"hello world!\")</script>");
+        let (script_ast, _script_warnings) =
+            parse("<script type=\"text/javascript\">alert(\"hello world!\")</script>");
 
         let wrapper = script_ast.wrapper.borrow();
         let root = wrapper.children[0].borrow();
@@ -162,40 +163,56 @@ mod tests {
         let wrapper = ast.wrapper.borrow();
         assert_eq!(wrapper.children.len(), 0);
         assert_eq!(warnings.borrow().len(), 1 as usize);
-        assert_eq!(warnings.borrow()[0], "Component template requires a root element, rather than just text.");
+        assert_eq!(
+            warnings.borrow()[0],
+            "Component template requires a root element, rather than just text."
+        );
     }
-    /*
 
-    Convert these when its known how to get provide warnings
+    #[test]
+    fn warn_text_before_root_element() {
+        let (ast, warnings) = parse("before root {{ interpolation }}<div></div>");
 
-      it('not contain root element', () => {
-        parse('hello world', baseOptions)
-        expect(
-          'Component template requires a root element, rather than just text'
-        ).toHaveBeenWarned()
-      })
+        let wrapper = ast.wrapper.borrow();
+        let root = wrapper.children[0].borrow();
 
-      it('warn text before root element', () => {
-        parse('before root {{ interpolation }}<div></div>', baseOptions)
-        expect(
-          'text "before root {{ interpolation }}" outside root element will be ignored.'
-        ).toHaveBeenWarned()
-      })
+        assert_eq!(root.children.len(), 0);
+        assert_eq!(warnings.borrow().len(), 2);
+        assert_eq!(
+            warnings.borrow()[0],
+            "text outside root element will be ignored."
+        );
+        assert_eq!(warnings.borrow()[1], "Component template should contain exactly one root element. If you are using v-if on multiple elements, use v-else-if to chain them instead.");
+    }
 
-      it('warn text after root element', () => {
-        parse('<div></div>after root {{ interpolation }}', baseOptions)
-        expect(
-          'text "after root {{ interpolation }}" outside root element will be ignored.'
-        ).toHaveBeenWarned()
-      })
+    #[test]
+    fn warn_text_after_root_element() {
+        let (ast, warnings) = parse("<div></div>after root {{ interpolation }}");
 
-      it('warn multiple root elements', () => {
-        parse('<div></div><div></div>', baseOptions)
-        expect(
-          'Component template should contain exactly one root element'
-        ).toHaveBeenWarned()
-      })
-     */
+        let wrapper = ast.wrapper.borrow();
+        let root = wrapper.children[0].borrow();
+
+        assert_eq!(root.children.len(), 0);
+        assert_eq!(warnings.borrow().len(), 2);
+        assert_eq!(warnings.borrow()[0], "Component template should contain exactly one root element. If you are using v-if on multiple elements, use v-else-if to chain them instead.");
+        assert_eq!(
+            warnings.borrow()[1],
+            "text outside root element will be ignored."
+        );
+    }
+
+    #[test]
+    fn warn_multiple_root_elements() {
+        let (ast, warnings) = parse("<div></div><span></span>");
+
+        let wrapper = ast.wrapper.borrow();
+        let root = wrapper.children[0].borrow();
+        assert_eq!(root.el.token.data, Box::from("div"));
+        assert_eq!(root.children.len(), 0);
+        assert_eq!(warnings.borrow().len(), 2);
+        assert_eq!(warnings.borrow()[0], "Component template should contain exactly one root element. If you are using v-if on multiple elements, use v-else-if to chain them instead.");
+        assert_eq!(warnings.borrow()[1], "Component template should contain exactly one root element. If you are using v-if on multiple elements, use v-else-if to chain them instead.");
+    }
 
     // Condensing white space could be moved to the html parser
     #[test]
@@ -232,7 +249,8 @@ mod tests {
         );
 
         // script
-        let (script_ast, _script_warnings) = parse("<script type=\"text/javascript\">alert(\"hello world!\")</script>");
+        let (script_ast, _script_warnings) =
+            parse("<script type=\"text/javascript\">alert(\"hello world!\")</script>");
 
         let wrapper = script_ast.wrapper.borrow();
         let root = wrapper.children[0].borrow();
@@ -244,38 +262,6 @@ mod tests {
             Box::from("alert(\"hello world!\")")
         );
     }
-
-    /*
-
-        it('not contain root element', () => {
-      parse('hello world', baseOptions)
-      expect(
-        'Component template requires a root element, rather than just text'
-      ).toHaveBeenWarned()
-    })
-
-    it('warn text before root element', () => {
-      parse('before root {{ interpolation }}<div></div>', baseOptions)
-      expect(
-        'text "before root {{ interpolation }}" outside root element will be ignored.'
-      ).toHaveBeenWarned()
-    })
-
-    it('warn text after root element', () => {
-      parse('<div></div>after root {{ interpolation }}', baseOptions)
-      expect(
-        'text "after root {{ interpolation }}" outside root element will be ignored.'
-      ).toHaveBeenWarned()
-    })
-
-    it('warn multiple root elements', () => {
-      parse('<div></div><div></div>', baseOptions)
-      expect(
-        'Component template should contain exactly one root element'
-      ).toHaveBeenWarned()
-    })
-
-       */
 
     #[test]
     fn remove_text_nodes_between_v_if_conditions() {

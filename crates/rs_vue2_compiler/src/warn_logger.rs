@@ -7,15 +7,18 @@ pub trait CloneableWarnLogger: WarnLogger {
     fn clone_box(&self) -> Box<dyn CloneableWarnLogger>;
 }
 
-impl<T> CloneableWarnLogger for T where T: WarnLogger + Clone + 'static {
+impl<T> CloneableWarnLogger for T
+where
+    T: WarnLogger + Clone + 'static,
+{
     fn clone_box(&self) -> Box<dyn CloneableWarnLogger> {
         Box::new(self.clone())
     }
 }
 
 impl<F> WarnLogger for F
-    where
-        F: FnMut(&str) + Clone + 'static,
+where
+    F: FnMut(&str) + Clone + 'static,
 {
     fn call(&mut self, msg: &str) {
         self(msg)

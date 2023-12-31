@@ -3,9 +3,10 @@ use crate::filter_parser::parse_filters;
 use crate::helpers::{is_some_and_ref, to_camel, to_hyphen_case};
 use crate::uni_codes::{UC_KEY, UC_V_ELSE, UC_V_ELSE_IF, UC_V_FOR, UC_V_IF, UC_V_ONCE, UC_V_PRE};
 use crate::util::{modifier_regex_replace_all_matches, prepend_modifier_marker};
+use crate::warn_logger::WarnLogger;
 use crate::{
-    ARG_RE, BIND_RE, DIR_RE, DYNAMIC_ARG_RE, FOR_ALIAS_RE, FOR_ITERATOR_RE, MODIFIER_RE,
-    ON_RE, PROP_BIND_RE, SLOT_RE, STRIP_PARENS_RE,
+    ARG_RE, BIND_RE, DIR_RE, DYNAMIC_ARG_RE, FOR_ALIAS_RE, FOR_ITERATOR_RE, MODIFIER_RE, ON_RE,
+    PROP_BIND_RE, SLOT_RE, STRIP_PARENS_RE,
 };
 use regex::Regex;
 use rs_html_parser_tokenizer_tokens::QuoteType;
@@ -17,7 +18,6 @@ use std::fmt;
 use std::rc::{Rc, Weak};
 use unicase_collections::unicase_btree_map::UniCaseBTreeMap;
 use unicase_collections::unicase_btree_set::UniCaseBTreeSet;
-use crate::warn_logger::WarnLogger;
 
 pub const EMPTY_SLOT_SCOPE_TOKEN: &'static str = "_empty_";
 
@@ -237,7 +237,7 @@ impl ASTTree {
         element: ASTElement,
         parent_id: usize,
         is_dev: bool,
-        warn: Box<dyn WarnLogger>
+        warn: Box<dyn WarnLogger>,
     ) -> Rc<RefCell<ASTNode>> {
         let new_id = self.counter.get() + 1;
         self.counter.set(new_id);
@@ -250,7 +250,7 @@ impl ASTTree {
             parent_id,
             children: vec![],
             is_dev,
-            warn
+            warn,
         }));
 
         new_node
@@ -627,7 +627,9 @@ impl ASTNode {
             if self.is_dev {
                 if self.el.token.data.eq_ignore_ascii_case("template") {
                     // self.get_raw_binding_attr(&UC_KEY).unwrap_or("".into()).to_string().as_str())
-                    self.warn.call("<template> cannot be keyed. Place the key on real elements instead. {}");
+                    self.warn.call(
+                        "<template> cannot be keyed. Place the key on real elements instead. {}",
+                    );
                 }
 
                 let has_iterator_1 =
@@ -768,7 +770,8 @@ impl ASTNode {
                 if let Some(slot_binding_val) = slot_binding {
                     if is_dev {
                         if !self.is_maybe_component() {
-                            self.warn.call("v-slot can only be used on components or <template>.")
+                            self.warn
+                                .call("v-slot can only be used on components or <template>.")
                         }
                         if self.el.slot_scope.is_some() || self.el.slot_target.is_some() {
                             self.warn.call("Unexpected mixed usage of different slot syntaxes. (slot-scope, slot)");
