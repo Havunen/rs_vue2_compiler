@@ -6,6 +6,7 @@ mod text_parser;
 mod uni_codes;
 mod util;
 mod web;
+mod warn_logger;
 
 extern crate lazy_static;
 
@@ -25,6 +26,7 @@ use std::cell::{RefCell, RefMut};
 use std::collections::VecDeque;
 use std::rc::Rc;
 use unicase_collections::unicase_btree_map::UniCaseBTreeMap;
+use crate::warn_logger::WarnLogger;
 
 lazy_static! {
     static ref INVALID_ATTRIBUTE_RE: Regex = Regex::new(r##"/[\s"'<>\/=]/"##).unwrap();
@@ -44,7 +46,7 @@ lazy_static! {
 }
 
 // TODO: Move to options
-fn warn(message: &str) {
+fn print_line(message: &str) {
     println!("{}", message)
 }
 
@@ -55,7 +57,6 @@ pub enum WhitespaceHandling {
     Ignore,
 }
 
-#[derive(Debug)]
 pub struct CompilerOptions {
     pub dev: bool,
     pub is_ssr: bool,
@@ -64,8 +65,8 @@ pub struct CompilerOptions {
     pub whitespace_handling: WhitespaceHandling,
 
     pub is_pre_tag: Option<fn(tag: &str) -> bool>,
-
     pub get_namespace: Option<fn(tag: &str) -> Option<&'static str>>,
+    pub warn: Option<Box<dyn WarnLogger>>,
 }
 
 fn is_forbidden_tag(el: &Token) -> bool {
@@ -90,6 +91,8 @@ fn is_forbidden_tag(el: &Token) -> bool {
 
 pub struct VueParser {
     dev: bool,
+    warn: Box<dyn WarnLogger>,
+
     is_ssr: bool,
     is_pre_tag: fn(tag: &str) -> bool,
 
@@ -126,13 +129,14 @@ impl VueParser {
             whitespace_handling: options.whitespace_handling,
             preserve_comments: false,
             active_text: None,
+            warn: options.warn.unwrap_or(Box::new(print_line)),
         }
     }
 
     fn warn_once(&mut self, msg: &str) {
         if !self.warned {
             self.warned = true;
-            warn(msg);
+            self.warn.call(msg);
         }
     }
 
@@ -154,7 +158,8 @@ impl VueParser {
     pub fn parse(&mut self, template: &str) -> ASTTree {
         let parser = Parser::new(template, &PARSER_OPTIONS);
         let is_dev = self.dev;
-        let mut root_tree: ASTTree = ASTTree::new(is_dev);
+
+        let mut root_tree: ASTTree = ASTTree::new(is_dev, self.warn.clone_box());
         let mut stack: VecDeque<usize> = VecDeque::new();
         let mut current_parent_id = 0;
         let mut current_namespace: Option<&'static str> = None;
@@ -165,8 +170,10 @@ impl VueParser {
                     self.end_text_node(&mut root_tree, current_parent_id);
 
                     let node_rc = root_tree.create(
-                        create_ast_element(token, ASTElementKind::Element, is_dev),
+                        create_ast_element(token, ASTElementKind::Element),
                         current_parent_id,
+                        is_dev,
+                        self.warn.clone(),
                     );
                     let mut node = node_rc.borrow_mut();
                     let node_id = node.id;
@@ -187,7 +194,7 @@ impl VueParser {
                         if let Some(attrs) = &node.el.token.attrs {
                             for (attr_key, _attr_value) in attrs {
                                 if INVALID_ATTRIBUTE_RE.find(&attr_key).is_some() {
-                                    warn(
+                                    self.warn.call(
                                         "Invalid dynamic argument expression: attribute names cannot contain spaces, quotes, <, >, / or =."
                                     )
                                 }
@@ -200,7 +207,7 @@ impl VueParser {
 
                         if is_dev {
                             // TODO: add tag
-                            warn(
+                            self.warn.call(
                                 "
             Templates should only be responsible for mapping the state to the
             UI. Avoid placing tags with side-effects in your templates, such as
@@ -262,7 +269,7 @@ impl VueParser {
                                     block_id: node_id,
                                 });
                             } else if is_dev {
-                                warn("Component template should contain exactly one root element. If you are using v-if on multiple elements, use v-else-if to chain them instead.");
+                                self.warn.call("Component template should contain exactly one root element. If you are using v-if on multiple elements, use v-else-if to chain them instead.");
                             }
                         }
                         let mut current_parent =
@@ -342,8 +349,10 @@ impl VueParser {
                         self.end_text_node(&mut root_tree, current_parent_id);
 
                         let node_rc = root_tree.create(
-                            create_ast_element(token, ASTElementKind::Text, is_dev),
+                            create_ast_element(token, ASTElementKind::Text),
                             current_parent_id,
+                            is_dev,
+                            self.warn.clone_box(),
                         );
                         let mut node = node_rc.borrow_mut();
                         node.el.is_comment = true;
@@ -367,8 +376,12 @@ impl VueParser {
                 TokenKind::Text => {
                     if current_parent_id == 0 {
                         if is_dev {
-                            // TODO: Simplified error msg
-                            warn("text outside root element will be ignored..");
+                            if &token.data.as_ref() == &template {
+                                self.warn.call("Component template requires a root element, rather than just text.")
+                            }
+                            else {
+                                self.warn.call("text outside root element will be ignored..");
+                            }
                         }
 
                         continue;
@@ -419,9 +432,10 @@ impl VueParser {
                                 is_implied: false,
                             },
                             ASTElementKind::Expression,
-                            self.dev,
                         ),
                         current_parent_id,
+                        self.dev,
+                        self.warn.clone_box(),
                     );
                     node = node_rc.borrow_mut();
                     node.el.expression = Some(expression_text.0);
@@ -435,10 +449,11 @@ impl VueParser {
                                 kind: TokenKind::Text,
                                 is_implied: false,
                             },
-                            ASTElementKind::Text,
-                            self.dev,
+                            ASTElementKind::Text
                         ),
                         current_parent_id,
+                        self.dev,
+                        self.warn.clone_box(),
                     );
                     node = node_rc.borrow_mut();
                 }

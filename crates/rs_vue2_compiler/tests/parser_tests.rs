@@ -1,10 +1,14 @@
 #[cfg(test)]
 mod tests {
+    use std::cell::RefCell;
     use rs_vue2_compiler::ast_tree::ASTTree;
     use rs_vue2_compiler::{CompilerOptions, VueParser, WhitespaceHandling};
     use std::rc::Rc;
 
-    fn parse(template: &str) -> ASTTree {
+    fn parse(template: &str) -> (ASTTree, Rc<RefCell<Vec<String>>>) {
+        let warnings = Rc::new(RefCell::new(Vec::new()));
+        let warnings_clone = Rc::clone(&warnings);
+
         let mut parser = VueParser::new(CompilerOptions {
             dev: true,
             is_ssr: false,
@@ -12,14 +16,17 @@ mod tests {
             whitespace_handling: WhitespaceHandling::Condense,
             is_pre_tag: None,
             get_namespace: None,
+            warn: Some(Box::new(move |msg: &str| {
+                warnings_clone.borrow_mut().push(msg.to_string());
+            }))
         });
 
-        parser.parse(template)
+        (parser.parse(template), warnings)
     }
 
     #[test]
     fn simple_element() {
-        let ast = parse("<h1>hello world</h1>");
+        let (ast, _warnings) = parse("<h1>hello world</h1>");
 
         let wrapper = ast.wrapper.borrow();
         let root = wrapper.children[0].borrow();
@@ -33,7 +40,7 @@ mod tests {
 
     #[test]
     fn interpolation_in_element() {
-        let ast = parse("<h1>{{msg}}</h1>");
+        let (ast, _warnings) = parse("<h1>{{msg}}</h1>");
 
         let wrapper = ast.wrapper.borrow();
         let root = wrapper.children[0].borrow();
@@ -47,7 +54,7 @@ mod tests {
 
     #[test]
     fn child_elements() {
-        let ast = parse("<ul><li>hello world</li></ul>");
+        let (ast, _warnings) = parse("<ul><li>hello world</li></ul>");
 
         let wrapper = ast.wrapper.borrow();
         let root = wrapper.children[0].borrow();
@@ -68,7 +75,7 @@ mod tests {
 
     #[test]
     fn unary_element() {
-        let ast = parse("<hr>");
+        let (ast, _warnings) = parse("<hr>");
 
         let wrapper = ast.wrapper.borrow();
         let root = wrapper.children[0].borrow();
@@ -79,7 +86,7 @@ mod tests {
 
     #[test]
     fn svg_element() {
-        let ast = parse("<svg><text>hello world</text></svg>");
+        let (ast, _warnings) = parse("<svg><text>hello world</text></svg>");
 
         let wrapper = ast.wrapper.borrow();
         let root = wrapper.children[0].borrow();
@@ -100,7 +107,7 @@ mod tests {
 
     #[test]
     fn camel_case_element() {
-        let ast = parse("<MyComponent><p>hello world</p></MyComponent>");
+        let (ast, _warnings) = parse("<MyComponent><p>hello world</p></MyComponent>");
 
         let wrapper = ast.wrapper.borrow();
         let root = wrapper.children[0].borrow();
@@ -122,7 +129,7 @@ mod tests {
     #[test]
     fn forbidden_element() {
         // style
-        let style_ast = parse("<style>error { color: red; }</style>");
+        let (style_ast, _warnings) = parse("<style>error { color: red; }</style>");
 
         let wrapper = style_ast.wrapper.borrow();
         let root = wrapper.children[0].borrow();
@@ -135,7 +142,7 @@ mod tests {
         );
 
         // script
-        let script_ast = parse("<script type=\"text/javascript\">alert(\"hello world!\")</script>");
+        let (script_ast, _script_warnings) = parse("<script type=\"text/javascript\">alert(\"hello world!\")</script>");
 
         let wrapper = script_ast.wrapper.borrow();
         let root = wrapper.children[0].borrow();
@@ -148,6 +155,15 @@ mod tests {
         );
     }
 
+    #[test]
+    fn not_contain_root_element() {
+        let (ast, warnings) = parse("hello world");
+
+        let wrapper = ast.wrapper.borrow();
+        assert_eq!(wrapper.children.len(), 0);
+        assert_eq!(warnings.borrow().len(), 1 as usize);
+        assert_eq!(warnings.borrow()[0], "Component template requires a root element, rather than just text.");
+    }
     /*
 
     Convert these when its known how to get provide warnings
@@ -184,7 +200,7 @@ mod tests {
     // Condensing white space could be moved to the html parser
     #[test]
     fn remove_duplicate_whitespace_text_nodes_caused_by_comments() {
-        let ast = parse("<div><a></a> <!----> <a></a></div>");
+        let (ast, _warnings) = parse("<div><a></a> <!----> <a></a></div>");
 
         let wrapper = ast.wrapper.borrow();
         let root = wrapper.children[0].borrow();
@@ -203,7 +219,7 @@ mod tests {
     #[test]
     fn forbidden_element_2() {
         // style
-        let style_ast = parse("<style>error { color: red; }</style>");
+        let (style_ast, _style_warnings) = parse("<style>error { color: red; }</style>");
 
         let wrapper = style_ast.wrapper.borrow();
         let root = wrapper.children[0].borrow();
@@ -216,7 +232,7 @@ mod tests {
         );
 
         // script
-        let script_ast = parse("<script type=\"text/javascript\">alert(\"hello world!\")</script>");
+        let (script_ast, _script_warnings) = parse("<script type=\"text/javascript\">alert(\"hello world!\")</script>");
 
         let wrapper = script_ast.wrapper.borrow();
         let root = wrapper.children[0].borrow();
@@ -263,7 +279,7 @@ mod tests {
 
     #[test]
     fn remove_text_nodes_between_v_if_conditions() {
-        let ast = parse("<div><foo v-if=\"1\"></foo> <section v-else-if=\"2\"></section> <article v-else></article> <span></span></div>");
+        let (ast, _warnings) = parse("<div><foo v-if=\"1\"></foo> <section v-else-if=\"2\"></section> <article v-else></article> <span></span></div>");
 
         let wrapper = ast.wrapper.borrow();
         let root = wrapper.children[0].borrow();

@@ -4,7 +4,7 @@ use crate::helpers::{is_some_and_ref, to_camel, to_hyphen_case};
 use crate::uni_codes::{UC_KEY, UC_V_ELSE, UC_V_ELSE_IF, UC_V_FOR, UC_V_IF, UC_V_ONCE, UC_V_PRE};
 use crate::util::{modifier_regex_replace_all_matches, prepend_modifier_marker};
 use crate::{
-    warn, ARG_RE, BIND_RE, DIR_RE, DYNAMIC_ARG_RE, FOR_ALIAS_RE, FOR_ITERATOR_RE, MODIFIER_RE,
+    ARG_RE, BIND_RE, DIR_RE, DYNAMIC_ARG_RE, FOR_ALIAS_RE, FOR_ITERATOR_RE, MODIFIER_RE,
     ON_RE, PROP_BIND_RE, SLOT_RE, STRIP_PARENS_RE,
 };
 use regex::Regex;
@@ -13,9 +13,11 @@ use rs_html_parser_tokens::Token;
 use rs_html_parser_tokens::TokenKind::{OpenTag, ProcessingInstruction};
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
+use std::fmt;
 use std::rc::{Rc, Weak};
 use unicase_collections::unicase_btree_map::UniCaseBTreeMap;
 use unicase_collections::unicase_btree_set::UniCaseBTreeSet;
+use crate::warn_logger::WarnLogger;
 
 pub const EMPTY_SLOT_SCOPE_TOKEN: &'static str = "_empty_";
 
@@ -72,8 +74,6 @@ pub struct ASTElement {
     pub expression: Option<String>,
     pub tokens: Option<Vec<String>>,
 
-    // TODO: internal helpers, move these somewhere else
-    pub is_dev: bool,
     pub new_slot_syntax: bool,
 
     // extra
@@ -125,7 +125,7 @@ pub struct ASTElement {
     pub is_comment: bool,
 }
 
-pub fn create_ast_element(token: Token, kind: ASTElementKind, is_dev: bool) -> ASTElement {
+pub fn create_ast_element(token: Token, kind: ASTElementKind) -> ASTElement {
     ASTElement {
         kind,
         token,
@@ -149,8 +149,6 @@ pub fn create_ast_element(token: Token, kind: ASTElementKind, is_dev: bool) -> A
         slot_name: None,
         slot_target: None,
         key: None,
-
-        is_dev,
         ref_in_for: false,
         ns: None,
         component: false,
@@ -171,13 +169,29 @@ pub fn create_ast_element(token: Token, kind: ASTElementKind, is_dev: bool) -> A
     }
 }
 
-#[derive(Debug)]
 pub struct ASTNode {
     pub id: usize,
     pub el: ASTElement,
     pub children: Vec<Rc<RefCell<ASTNode>>>,
     pub parent_id: usize,
     pub parent: Option<Weak<RefCell<ASTNode>>>,
+
+    // TODO: internal helpers, move these somewhere else
+    is_dev: bool,
+    warn: Box<dyn WarnLogger>,
+}
+
+impl fmt::Debug for ASTNode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ASTNode")
+            .field("id", &self.id)
+            .field("el", &self.el)
+            .field("children", &self.children)
+            .field("parent_id", &self.parent_id)
+            .field("parent", &self.parent.is_some())
+            .field("is_dev", &self.is_dev)
+            .finish()
+    }
 }
 
 #[derive(Debug)]
@@ -188,7 +202,7 @@ pub struct ASTTree {
 }
 
 impl ASTTree {
-    pub fn new(is_dev: bool) -> Self {
+    pub fn new(is_dev: bool, warn: Box<dyn WarnLogger>) -> Self {
         let node = Rc::new(RefCell::new(ASTNode {
             id: 0,
             el: create_ast_element(
@@ -199,11 +213,12 @@ impl ASTTree {
                     is_implied: false,
                 },
                 ASTElementKind::Root,
-                is_dev,
             ),
             children: Default::default(),
             parent_id: 0,
             parent: None,
+            is_dev,
+            warn,
         }));
 
         let mut tree = ASTTree {
@@ -217,7 +232,13 @@ impl ASTTree {
         return tree;
     }
 
-    pub fn create(&self, element: ASTElement, parent_id: usize) -> Rc<RefCell<ASTNode>> {
+    pub fn create(
+        &self,
+        element: ASTElement,
+        parent_id: usize,
+        is_dev: bool,
+        warn: Box<dyn WarnLogger>
+    ) -> Rc<RefCell<ASTNode>> {
         let new_id = self.counter.get() + 1;
         self.counter.set(new_id);
         let parent = self.get(parent_id).cloned().unwrap();
@@ -228,9 +249,9 @@ impl ASTTree {
             parent: Some(Rc::downgrade(&parent)),
             parent_id,
             children: vec![],
+            is_dev,
+            warn
         }));
-
-        // parent.borrow_mut().children.push(Rc::clone(&new_node));
 
         new_node
     }
@@ -277,7 +298,7 @@ impl ASTNode {
                 }
             }
 
-            warn("Invalid v-for expression: ${exp}");
+            self.warn.call("Invalid v-for expression: ${exp}");
         }
     }
 
@@ -325,7 +346,7 @@ impl ASTNode {
                     block_id: self.id,
                 });
             } else {
-                warn("Invalid v-if expression: ${exp}");
+                self.warn.call("Invalid v-if expression: ${exp}");
             }
         } else {
             let v_else_optional = self.get_and_remove_attr(&UC_V_ELSE, false);
@@ -342,7 +363,7 @@ impl ASTNode {
                 if let Some(v_else_if_value) = v_else_if_val.value {
                     self.el.else_if_val = Some(v_else_if_value);
                 } else {
-                    warn("Invalid v-else-if expression: ${exp}");
+                    self.warn.call("Invalid v-else-if expression: ${exp}");
                 }
             }
         }
@@ -487,7 +508,7 @@ impl ASTNode {
     }
 
     fn find_prev_element<'a>(
-        &'a self,
+        &mut self,
         self_ptr: &Rc<RefCell<ASTNode>>,
         children: &'a mut Vec<Rc<RefCell<ASTNode>>>,
     ) -> Option<&'a Rc<RefCell<ASTNode>>> {
@@ -506,8 +527,8 @@ impl ASTNode {
                 return Some(&children[i]);
             }
 
-            if children[i].borrow().el.is_dev {
-                warn(&format!(
+            if children[i].borrow().is_dev {
+                self.warn.call(&format!(
                     "text \"{}\" between v-if and v-else(-if) will be ignored.",
                     &children[i].borrow().el.token.data
                 ));
@@ -532,8 +553,8 @@ impl ASTNode {
                     block_id: self.id,
                 });
             }
-        } else if self.el.is_dev {
-            warn(&format!(
+        } else if self.is_dev {
+            self.warn.call(&format!(
                 "v-{} used on element <{}> without corresponding v-if.",
                 match &self.el.else_if_val {
                     Some(else_if_val) => format!("else-if=\"{}\"", else_if_val),
@@ -576,7 +597,7 @@ impl ASTNode {
                 self.el.slot_name = Some(slot_name);
             }
 
-            if self.el.is_dev && self.el.key.is_some() {
+            if self.is_dev && self.el.key.is_some() {
                 println!(
                     "`key` does not work on <slot> because slots are abstract outlets \
                 and can possibly expand into multiple elements. \
@@ -603,10 +624,10 @@ impl ASTNode {
         let exp = self.get_binding_attr(&UC_KEY, false);
 
         if !exp.is_empty() {
-            if self.el.is_dev {
+            if self.is_dev {
                 if self.el.token.data.eq_ignore_ascii_case("template") {
                     // self.get_raw_binding_attr(&UC_KEY).unwrap_or("".into()).to_string().as_str())
-                    warn("<template> cannot be keyed. Place the key on real elements instead. {}");
+                    self.warn.call("<template> cannot be keyed. Place the key on real elements instead. {}");
                 }
 
                 let has_iterator_1 =
@@ -626,7 +647,7 @@ impl ASTNode {
                                     .eq_ignore_ascii_case("transition-group")
                                 {
                                     // getRawBindingAttr(el, 'key'),
-                                    warn(
+                                    self.warn.call(
                                         r#"Do not use v-for index as key on <transition-group> children,
                                     "this is the same as not using keys. "#,
                                     );
@@ -652,7 +673,7 @@ impl ASTNode {
     }
 
     pub fn process_slot_content(&mut self, tree: &ASTTree) {
-        let is_dev = self.el.is_dev;
+        let is_dev = self.is_dev;
         let mut slot_scope_entry_value: Option<String> = None;
 
         if self.el.token.data.eq_ignore_ascii_case("template") {
@@ -660,7 +681,7 @@ impl ASTNode {
 
             if let Some(slot_scope_val) = slot_scope {
                 if is_dev {
-                    warn("the \"scope\" attribute for scoped slots have been deprecated and replaced by \"slot-scope\" since 2.5. The new \"slot-scope\" attribute can also be used on plain elements in addition to <template> to denote scoped slots.");
+                    self.warn.call("the \"scope\" attribute for scoped slots have been deprecated and replaced by \"slot-scope\" since 2.5. The new \"slot-scope\" attribute can also be used on plain elements in addition to <template> to denote scoped slots.");
                 }
 
                 slot_scope_entry_value = slot_scope_val.value;
@@ -680,7 +701,7 @@ impl ASTNode {
                 self.el.slot_scope = slot_scope_entry.value;
 
                 if is_dev && self.has_raw_attr("v-for") {
-                    warn("Ambiguous combined usage of slot-scope and v-for on <{TODO}> (v-for takes higher priority). Use a wrapper <template> for the scoped slot to make it clearer.");
+                    self.warn.call("Ambiguous combined usage of slot-scope and v-for on <{TODO}> (v-for takes higher priority). Use a wrapper <template> for the scoped slot to make it clearer.");
                 }
             }
         }
@@ -720,7 +741,7 @@ impl ASTNode {
                         let slot_scope = self.el.slot_scope.clone();
 
                         if slot_target.is_some() || slot_scope.is_some() {
-                            warn("Unexpected mixed usage of different slot syntaxes. (slot-target, slot-scope)");
+                            self.warn.call("Unexpected mixed usage of different slot syntaxes. (slot-target, slot-scope)");
                         }
                         if let Some(parent) = self
                             .parent
@@ -728,7 +749,7 @@ impl ASTNode {
                             .and_then(|parent_weak| parent_weak.upgrade())
                         {
                             if parent.borrow().is_maybe_component() {
-                                warn("<template v-slot> can only appear at the root level inside the receiving component.");
+                                self.warn.call("<template v-slot> can only appear at the root level inside the receiving component.");
                             }
                         }
                     }
@@ -747,13 +768,13 @@ impl ASTNode {
                 if let Some(slot_binding_val) = slot_binding {
                     if is_dev {
                         if !self.is_maybe_component() {
-                            warn("v-slot can only be used on components or <template>.")
+                            self.warn.call("v-slot can only be used on components or <template>.")
                         }
                         if self.el.slot_scope.is_some() || self.el.slot_target.is_some() {
-                            warn("Unexpected mixed usage of different slot syntaxes. (slot-scope, slot)");
+                            self.warn.call("Unexpected mixed usage of different slot syntaxes. (slot-scope, slot)");
                         }
                         if self.el.scoped_slots.is_some() {
-                            warn("To avoid scope ambiguity, the default slot should also use <template> syntax when there are other named slots.");
+                            self.warn.call("To avoid scope ambiguity, the default slot should also use <template> syntax when there are other named slots.");
                         }
                     }
                     let slots = if self.el.scoped_slots.is_some() {
@@ -773,9 +794,10 @@ impl ASTNode {
                                 is_implied: false,
                             },
                             ASTElementKind::Element,
-                            is_dev,
                         ),
                         self.id,
+                        is_dev,
+                        self.warn.clone_box(),
                     );
                     let mut slot_container_node = slot_container.borrow_mut();
 
@@ -881,8 +903,8 @@ impl ASTNode {
         false
     }
 
-    pub fn check_for_alias_model(&self, val: &str) {
-        if !self.el.is_dev {
+    pub fn check_for_alias_model(&mut self, val: &str) {
+        if !self.is_dev {
             return;
         }
 
@@ -896,7 +918,7 @@ Consider using an array of objects and use v-model on an object property instead
         if self.el.for_value.is_some()
             && is_some_and_ref(&self.el.alias, |alias| alias.eq_ignore_ascii_case(val))
         {
-            warn(warn_text);
+            self.warn.call(warn_text);
             return;
         }
 
@@ -911,7 +933,7 @@ Consider using an array of objects and use v-model on an object property instead
                     alias.eq_ignore_ascii_case(val)
                 })
             {
-                warn(warn_text);
+                self.warn.call(warn_text);
             }
             current_node = node
                 .borrow()
@@ -971,8 +993,8 @@ Consider using an array of objects and use v-model on an object property instead
                     name_str = name_str[1..name_str.len() - 1].to_string();
                 }
 
-                if self.el.is_dev && value.as_ref().is_some_and(|v| v.0.trim().is_empty()) {
-                    warn(&format!(
+                if self.is_dev && value.as_ref().is_some_and(|v| v.0.trim().is_empty()) {
+                    self.warn.call(&format!(
                         "The value for a v-bind expression cannot be empty. Found in \"v-bind:{}\"",
                         name_str
                     ));
@@ -1045,7 +1067,7 @@ Consider using an array of objects and use v-model on an object property instead
                 if let Some(val) = value {
                     attr_value = val.0;
                 } else {
-                    warn("TODO: ignoring v-on without value");
+                    self.warn.call("TODO: ignoring v-on without value");
                     return;
                 }
 
@@ -1060,7 +1082,7 @@ Consider using an array of objects and use v-model on an object property instead
                 if let Some(val) = value {
                     attr_value = val.0;
                 } else {
-                    warn("TODO: ignoring v-on without value");
+                    self.warn.call("TODO: ignoring v-on without value");
                     return;
                 }
 
@@ -1086,7 +1108,7 @@ Consider using an array of objects and use v-model on an object property instead
                     is_dynamic,
                     modifiers_option,
                 );
-                if self.el.is_dev && name_str.eq_ignore_ascii_case("model") {
+                if self.is_dev && name_str.eq_ignore_ascii_case("model") {
                     self.check_for_alias_model(&attr_value);
                 }
             }
@@ -1098,7 +1120,7 @@ Consider using an array of objects and use v-model on an object property instead
             };
 
             // literal attribute
-            if self.el.is_dev {
+            if self.is_dev {
                 // TODO: Finish validation
                 // let res = parse_text(&value, delimiters);
                 // if let Some(res) = res {
@@ -1133,7 +1155,7 @@ Consider using an array of objects and use v-model on an object property instead
 
         if cfg!(debug_assertions) {
             if modifiers.get("prevent").is_some() && modifiers.get("passive").is_some() {
-                warn("passive and prevent can't be used together. Passive handler can't prevent default event.");
+                self.warn.call("passive and prevent can't be used together. Passive handler can't prevent default event.");
             }
         }
 
