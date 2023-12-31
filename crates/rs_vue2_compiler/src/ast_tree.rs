@@ -516,6 +516,8 @@ impl ASTNode {
             return None;
         }
 
+        let is_dev = self.is_dev;
+
         let self_index = children
             .iter()
             .position(|child| Rc::ptr_eq(child, self_ptr))
@@ -527,7 +529,8 @@ impl ASTNode {
                 return Some(&children[i]);
             }
 
-            if children[i].borrow().is_dev {
+            // do not warn about single whitespace text nodes
+            if is_dev && children[i].borrow().el.token.data.as_ref() != " " {
                 self.warn.call(&format!(
                     "text \"{}\" between v-if and v-else(-if) will be ignored.",
                     &children[i].borrow().el.token.data
@@ -1085,7 +1088,6 @@ Consider using an array of objects and use v-model on an object property instead
                 if let Some(val) = value {
                     attr_value = val.0;
                 } else {
-                    self.warn.call("TODO: ignoring v-on without value");
                     return;
                 }
 

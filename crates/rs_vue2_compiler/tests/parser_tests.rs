@@ -177,12 +177,11 @@ mod tests {
         let root = wrapper.children[0].borrow();
 
         assert_eq!(root.children.len(), 0);
-        assert_eq!(warnings.borrow().len(), 2);
+        assert_eq!(warnings.borrow().len(), 1);
         assert_eq!(
             warnings.borrow()[0],
             "text outside root element will be ignored."
         );
-        assert_eq!(warnings.borrow()[1], "Component template should contain exactly one root element. If you are using v-if on multiple elements, use v-else-if to chain them instead.");
     }
 
     #[test]
@@ -193,10 +192,9 @@ mod tests {
         let root = wrapper.children[0].borrow();
 
         assert_eq!(root.children.len(), 0);
-        assert_eq!(warnings.borrow().len(), 2);
-        assert_eq!(warnings.borrow()[0], "Component template should contain exactly one root element. If you are using v-if on multiple elements, use v-else-if to chain them instead.");
+        assert_eq!(warnings.borrow().len(), 1);
         assert_eq!(
-            warnings.borrow()[1],
+            warnings.borrow()[0],
             "text outside root element will be ignored."
         );
     }
@@ -209,9 +207,8 @@ mod tests {
         let root = wrapper.children[0].borrow();
         assert_eq!(root.el.token.data, Box::from("div"));
         assert_eq!(root.children.len(), 0);
-        assert_eq!(warnings.borrow().len(), 2);
+        assert_eq!(warnings.borrow().len(), 1);
         assert_eq!(warnings.borrow()[0], "Component template should contain exactly one root element. If you are using v-if on multiple elements, use v-else-if to chain them instead.");
-        assert_eq!(warnings.borrow()[1], "Component template should contain exactly one root element. If you are using v-if on multiple elements, use v-else-if to chain them instead.");
     }
 
     // Condensing white space could be moved to the html parser
@@ -265,7 +262,7 @@ mod tests {
 
     #[test]
     fn remove_text_nodes_between_v_if_conditions() {
-        let (ast, _warnings) = parse("<div><foo v-if=\"1\"></foo> <section v-else-if=\"2\"></section> <article v-else></article> <span></span></div>");
+        let (ast, warnings) = parse("<div><foo v-if=\"1\"></foo> <section v-else-if=\"2\"></section> <article v-else></article> <span></span></div>");
 
         let wrapper = ast.wrapper.borrow();
         let root = wrapper.children[0].borrow();
@@ -288,5 +285,7 @@ mod tests {
 
         let child_3 = root.children[2].borrow();
         assert_eq!(child_3.el.token.data, Box::from("span"));
+
+        assert_eq!(warnings.borrow().len(), 0);
     }
 }
