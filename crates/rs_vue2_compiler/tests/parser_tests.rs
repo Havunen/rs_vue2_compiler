@@ -162,7 +162,7 @@ mod tests {
 
         let wrapper = ast.wrapper.borrow();
         assert_eq!(wrapper.children.len(), 0);
-        assert_eq!(warnings.borrow().len(), 1 as usize);
+        assert_eq!(warnings.borrow().len(), 1);
         assert_eq!(
             warnings.borrow()[0],
             "Component template requires a root element, rather than just text."
@@ -351,5 +351,113 @@ mod tests {
         assert_eq!(root.el.if_conditions.as_ref().unwrap().len(), 2);
 
         assert_eq!(warnings.borrow().len(), 0);
+    }
+
+    #[test]
+    fn not_warn_3_or_more_root_elements_with_v_if_v_else_if_and_v_else_on_separate_lines() {
+        // Test with 3 root elements
+        let (ast, warnings) = parse("<div v-if=\"1\"></div>\n<div v-else-if=\"2\"></div>\n<div v-else></div>");
+
+        let wrapper = ast.wrapper.borrow();
+        let root = wrapper.children[0].borrow();
+
+        assert_eq!(root.el.if_conditions.as_ref().unwrap().len(), 3);
+        assert_eq!(warnings.borrow().len(), 0);
+
+        // Test with 5 root elements
+        let (ast, warnings) = parse("<div v-if=\"1\"></div>\n<div v-else-if=\"2\"></div>\n<div v-else-if=\"3\"></div>\n<div v-else-if=\"4\"></div>\n<div v-else></div>");
+
+        let wrapper = ast.wrapper.borrow();
+        let root = wrapper.children[0].borrow();
+
+        assert_eq!(root.el.if_conditions.as_ref().unwrap().len(), 5);
+        assert_eq!(warnings.borrow().len(), 0);
+    }
+
+    #[test]
+    fn generate_correct_ast_for_2_root_elements_with_v_if_and_v_else_on_separate_lines() {
+        let (ast, _warnings) = parse("<div v-if=\"1\"></div>\n<p v-else></p>");
+
+        let wrapper = ast.wrapper.borrow();
+        let root = wrapper.children[0].borrow();
+
+        assert_eq!(root.el.token.data, Box::from("div"));
+
+        let if_conditions = root.el.if_conditions.as_ref().unwrap();
+        assert_eq!(if_conditions[1].block_id, 2);
+
+        let p_node = ast.get(if_conditions[1].block_id).unwrap().borrow();
+        assert_eq!(p_node.el.token.data, Box::from("p"));
+    }
+
+    #[test]
+    fn generate_correct_ast_for_3_or_more_root_elements_with_v_if_and_v_else_on_separate_lines() {
+        // Test with 3 root elements
+        let (ast, _warnings) = parse("<div v-if=\"1\"></div>\n<span v-else-if=\"2\"></span>\n<p v-else></p>");
+
+        let wrapper = ast.wrapper.borrow();
+        let root = wrapper.children[0].borrow();
+
+        assert_eq!(root.el.token.data, Box::from("div"));
+
+        let if_conditions = root.el.if_conditions.as_ref().unwrap();
+        assert_eq!(if_conditions[0].block_id, 1);
+        assert_eq!(if_conditions[1].block_id, 2);
+        assert_eq!(if_conditions[2].block_id, 3);
+
+        let div_node = ast.get(if_conditions[0].block_id).unwrap().borrow();
+        assert_eq!(div_node.el.token.data, Box::from("div"));
+
+        let span_node = ast.get(if_conditions[1].block_id).unwrap().borrow();
+        assert_eq!(span_node.el.token.data, Box::from("span"));
+
+        let p_node = ast.get(if_conditions[2].block_id).unwrap().borrow();
+        assert_eq!(p_node.el.token.data, Box::from("p"));
+
+        // Test with 5 root elements
+        let (ast, _warnings) = parse("<div v-if=\"1\"></div>\n<span v-else-if=\"2\"></span>\n<div v-else-if=\"3\"></div>\n<span v-else-if=\"4\"></span>\n<p v-else></p>");
+
+        let wrapper = ast.wrapper.borrow();
+        let root = wrapper.children[0].borrow();
+
+        assert_eq!(root.el.token.data, Box::from("div"));
+
+        let if_conditions = root.el.if_conditions.as_ref().unwrap();
+        assert_eq!(if_conditions[0].block_id, 1);
+        assert_eq!(if_conditions[1].block_id, 2);
+        assert_eq!(if_conditions[2].block_id, 3);
+        assert_eq!(if_conditions[3].block_id, 4);
+        assert_eq!(if_conditions[4].block_id, 5);
+
+        let div_node = ast.get(if_conditions[0].block_id).unwrap().borrow();
+        assert_eq!(div_node.el.token.data, Box::from("div"));
+
+        let span_node = ast.get(if_conditions[1].block_id).unwrap().borrow();
+        assert_eq!(span_node.el.token.data, Box::from("span"));
+
+        let div_node_2 = ast.get(if_conditions[2].block_id).unwrap().borrow();
+        assert_eq!(div_node_2.el.token.data, Box::from("div"));
+
+        let span_node_2 = ast.get(if_conditions[3].block_id).unwrap().borrow();
+        assert_eq!(span_node_2.el.token.data, Box::from("span"));
+
+        let p_node = ast.get(if_conditions[4].block_id).unwrap().borrow();
+        assert_eq!(p_node.el.token.data, Box::from("p"));
+    }
+
+    #[test]
+    fn warn_2_root_elements_with_v_if() {
+        let (_ast, warnings) = parse("<div v-if=\"1\"></div><div v-if=\"2\"></div>");
+
+        assert_eq!(warnings.borrow().len(), 1);
+        assert_eq!(warnings.borrow()[0], "Component template should contain exactly one root element. If you are using v-if on multiple elements, use v-else-if to chain them instead.");
+    }
+
+    #[test]
+    fn warn_3_root_elements_with_v_if_and_v_else_on_first_2() {
+        let (_ast, warnings) = parse("<div v-if=\"1\"></div><div v-else></div><div></div>");
+
+        assert_eq!(warnings.borrow().len(), 1);
+        assert_eq!(warnings.borrow()[0], "Component template should contain exactly one root element. If you are using v-if on multiple elements, use v-else-if to chain them instead.");
     }
 }
