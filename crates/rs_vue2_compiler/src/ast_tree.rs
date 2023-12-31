@@ -279,6 +279,36 @@ impl ASTNode {
         if self.el.token.attrs.is_none() {
             // non root node in pre blocks with no attributes
             self.el.plain = true;
+
+            return;
+        }
+
+        let attrs_opt = &self.el.token.attrs;
+        let mut attributes: Vec<(String, Option<String>, QuoteType)> = vec![];
+
+        if let Some(attrs) = attrs_opt {
+            if attrs.is_empty() {
+                // non root node in pre blocks with no attributes
+                self.el.plain = true;
+
+                return;
+            }
+
+            for (attr_name, attr_value_quote) in attrs.iter() {
+                attributes.push(if let Some(attr_entry) = attr_value_quote {
+                    (
+                        attr_name.to_string(),
+                        Some(attr_entry.0.to_string()),
+                        attr_entry.1,
+                    )
+                } else {
+                    (attr_name.to_string(), None, QuoteType::NoValue)
+                });
+            }
+        }
+
+        for (attr_name, attr_value, attr_quotes) in attributes {
+            self.insert_into_attrs(&attr_name, attr_value, attr_quotes, false);
         }
     }
 
@@ -298,7 +328,7 @@ impl ASTNode {
                 }
             }
 
-            self.warn.call("Invalid v-for expression: ${exp}");
+            self.warn.call("Missing v-for expression.");
         }
     }
 
@@ -321,11 +351,13 @@ impl ASTNode {
 
             let alias = res.alias.clone();
             if let Some(iterator_match) = FOR_ITERATOR_RE.captures(&alias) {
-                res.alias = iterator_match[1].trim().to_string();
+                res.alias = FOR_ITERATOR_RE.replace_all(&alias, "").to_string();
                 res.iterator1 = Some(iterator_match[1].trim().to_string());
                 if let Some(iterator2) = iterator_match.get(2) {
                     res.iterator2 = Some(iterator2.as_str().trim().to_string());
                 }
+            } else {
+                res.alias = alias;
             }
 
             Some(res)
@@ -346,7 +378,7 @@ impl ASTNode {
                     block_id: self.id,
                 });
             } else {
-                self.warn.call("Invalid v-if expression: ${exp}");
+                self.warn.call("Missing v-if expression.");
             }
         } else {
             let v_else_optional = self.get_and_remove_attr(&UC_V_ELSE, false);
@@ -363,7 +395,7 @@ impl ASTNode {
                 if let Some(v_else_if_value) = v_else_if_val.value {
                     self.el.else_if_val = Some(v_else_if_value);
                 } else {
-                    self.warn.call("Invalid v-else-if expression: ${exp}");
+                    self.warn.call("Missing v-else-if expression.");
                 }
             }
         }
@@ -483,7 +515,7 @@ impl ASTNode {
         return String::new();
     }
 
-    pub fn get_raw_binding_attr(&mut self, name: &'static str) -> Option<&Box<str>> {
+    pub fn get_raw_binding_attr(&self, name: &'static str) -> Option<&Box<str>> {
         let mut val = self.get_raw_attr(&(":".to_string() + name));
 
         if val.is_some() {
@@ -629,9 +661,12 @@ impl ASTNode {
         if !exp.is_empty() {
             if self.is_dev {
                 if self.el.token.data.eq_ignore_ascii_case("template") {
-                    // self.get_raw_binding_attr(&UC_KEY).unwrap_or("".into()).to_string().as_str())
+                    let opt = self.get_raw_binding_attr(&UC_KEY);
+
                     self.warn.call(
-                        "<template> cannot be keyed. Place the key on real elements instead. {}",
+                        &format!("<template> cannot be keyed. Place the key on real elements instead. key was {}",
+                            if opt.is_some() { opt.as_deref().unwrap() } else { "" }
+                        ),
                     );
                 }
 
@@ -653,17 +688,15 @@ impl ASTNode {
                                 {
                                     // getRawBindingAttr(el, 'key'),
                                     self.warn.call(
-                                        r#"Do not use v-for index as key on <transition-group> children,
-                                    "this is the same as not using keys. "#,
+                                        "Do not use v-for index as key on <transition-group> children,\nthis is the same as not using keys.",
                                     );
                                 }
                             }
                         }
                     }
                 }
-
-                self.el.key = Some(exp);
             }
+            self.el.key = Some(exp);
         }
     }
     fn process_ref(&mut self) {
@@ -851,6 +884,10 @@ impl ASTNode {
         quote_type: QuoteType,
         is_dynamic: bool,
     ) {
+        if self.el.ignored.contains(key) {
+            return;
+        }
+
         self.el.plain = false;
 
         let item = AttrItem {
@@ -861,9 +898,9 @@ impl ASTNode {
         };
 
         if is_dynamic {
-            self.el.attrs.push(item)
-        } else {
             self.el.dynamic_attrs.push(item)
+        } else {
+            self.el.attrs.push(item)
         }
     }
 

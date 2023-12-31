@@ -148,7 +148,10 @@ impl VueParser {
         if new_root.token.data.eq_ignore_ascii_case("slot")
             || new_root.token.data.eq_ignore_ascii_case("template")
         {
-            self.warn_once("Cannot use <${el.tag}> as component root element because it may contain multiple nodes.")
+            self.warn_once(&format!(
+                "Cannot use <{}> as component root element because it may contain multiple nodes.",
+                new_root.token.data
+            ))
         }
         if has_attribute(&new_root.token, &UC_V_FOR) {
             self.warn_once("Cannot use v-for on stateful component root element because it renders multiple elements.")
@@ -277,6 +280,9 @@ impl VueParser {
 
                         // always take root node, even if forbidden
                         if !node.el.forbidden || node.id == 1 {
+                            if is_dev && node.id == 1 {
+                                self.check_root_constraints(&node.el);
+                            }
                             if node.el.else_if_val.is_some() || node.el.is_else {
                                 node.process_if_conditions(
                                     node_ptr,
@@ -382,7 +388,10 @@ impl VueParser {
                                 let text_trimmed = token.data.trim();
 
                                 if !text_trimmed.is_empty() {
-                                    self.warn.call(&format!("text \"{}\" outside root element will be ignored.", text_trimmed));
+                                    self.warn.call(&format!(
+                                        "text \"{}\" outside root element will be ignored.",
+                                        text_trimmed
+                                    ));
                                 }
                             }
                         }

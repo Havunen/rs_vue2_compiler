@@ -306,7 +306,10 @@ mod tests {
         assert_eq!(if_conditions[1].exp, None);
 
         assert_eq!(warnings.borrow().len(), 1);
-        assert_eq!(warnings.borrow()[0], "text \"foo\" between v-if and v-else(-if) will be ignored.");
+        assert_eq!(
+            warnings.borrow()[0],
+            "text \"foo\" between v-if and v-else(-if) will be ignored."
+        );
     }
 
     #[test]
@@ -323,7 +326,8 @@ mod tests {
 
     #[test]
     fn not_warn_3_root_elements_with_v_if_v_else_if_and_v_else() {
-        let (ast, warnings) = parse("<div v-if=\"1\"></div><div v-else-if=\"2\"></div><div v-else></div>");
+        let (ast, warnings) =
+            parse("<div v-if=\"1\"></div><div v-else-if=\"2\"></div><div v-else></div>");
 
         let wrapper = ast.wrapper.borrow();
         let root = wrapper.children[0].borrow();
@@ -356,7 +360,8 @@ mod tests {
     #[test]
     fn not_warn_3_or_more_root_elements_with_v_if_v_else_if_and_v_else_on_separate_lines() {
         // Test with 3 root elements
-        let (ast, warnings) = parse("<div v-if=\"1\"></div>\n<div v-else-if=\"2\"></div>\n<div v-else></div>");
+        let (ast, warnings) =
+            parse("<div v-if=\"1\"></div>\n<div v-else-if=\"2\"></div>\n<div v-else></div>");
 
         let wrapper = ast.wrapper.borrow();
         let root = wrapper.children[0].borrow();
@@ -393,7 +398,8 @@ mod tests {
     #[test]
     fn generate_correct_ast_for_3_or_more_root_elements_with_v_if_and_v_else_on_separate_lines() {
         // Test with 3 root elements
-        let (ast, _warnings) = parse("<div v-if=\"1\"></div>\n<span v-else-if=\"2\"></span>\n<p v-else></p>");
+        let (ast, _warnings) =
+            parse("<div v-if=\"1\"></div>\n<span v-else-if=\"2\"></span>\n<p v-else></p>");
 
         let wrapper = ast.wrapper.borrow();
         let root = wrapper.children[0].borrow();
@@ -459,5 +465,168 @@ mod tests {
 
         assert_eq!(warnings.borrow().len(), 1);
         assert_eq!(warnings.borrow()[0], "Component template should contain exactly one root element. If you are using v-if on multiple elements, use v-else-if to chain them instead.");
+    }
+
+    #[test]
+    fn warn_4_root_elements_with_v_if_v_else_if_and_v_else_on_first_2() {
+        let (_ast, warnings) =
+            parse("<div v-if=\"1\"></div><div v-else-if></div><div v-else></div><div></div>");
+
+        assert_eq!(warnings.borrow().len(), 3);
+        assert_eq!(warnings.borrow()[0], "Missing v-else-if expression.");
+        assert_eq!(warnings.borrow()[1], "Component template should contain exactly one root element. If you are using v-if on multiple elements, use v-else-if to chain them instead.");
+        assert_eq!(warnings.borrow()[2], "Component template should contain exactly one root element. If you are using v-if on multiple elements, use v-else-if to chain them instead.");
+    }
+
+    #[test]
+    fn warn_2_root_elements_with_v_if_and_v_else_with_v_for_on_2nd() {
+        let (_ast, warnings) = parse("<div v-if=\"1\"></div><div v-else v-for=\"i in [1]\"></div>");
+
+        assert_eq!(warnings.borrow().len(), 1);
+        assert_eq!(warnings.borrow()[0], "Cannot use v-for on stateful component root element because it renders multiple elements.");
+    }
+
+    #[test]
+    fn warn_2_root_elements_with_v_if_and_v_else_if_with_v_for_on_2nd() {
+        let (_ast, warnings) =
+            parse("<div v-if=\"1\"></div><div v-else-if=\"2\" v-for=\"i in [1]\"></div>");
+
+        assert_eq!(warnings.borrow().len(), 1);
+        assert_eq!(warnings.borrow()[0], "Cannot use v-for on stateful component root element because it renders multiple elements.");
+    }
+
+    #[test]
+    fn warn_template_as_root_element() {
+        let (_ast, warnings) = parse("<template></template>");
+
+        assert_eq!(warnings.borrow().len(), 1);
+        assert_eq!(warnings.borrow()[0], "Cannot use <template> as component root element because it may contain multiple nodes.");
+    }
+
+    #[test]
+    fn warn_slot_as_root_element() {
+        let (_ast, warnings) = parse("<slot></slot>");
+
+        assert_eq!(warnings.borrow().len(), 1);
+        assert_eq!(
+            warnings.borrow()[0],
+            "Cannot use <slot> as component root element because it may contain multiple nodes."
+        );
+    }
+
+    #[test]
+    fn warn_v_for_on_root_element() {
+        let (_ast, warnings) = parse("<div v-for=\"item in items\"></div>");
+
+        assert_eq!(warnings.borrow().len(), 1);
+        assert_eq!(warnings.borrow()[0], "Cannot use v-for on stateful component root element because it renders multiple elements.");
+    }
+
+    #[test]
+    fn warn_template_key() {
+        let (_ast, warnings) =
+            parse("<div><template v-for=\"i in 10\" :key=\"i\"></template></div>");
+
+        assert_eq!(warnings.borrow().len(), 1);
+        assert_eq!(
+            warnings.borrow()[0],
+            "<template> cannot be keyed. Place the key on real elements instead. key was i"
+        );
+    }
+
+    #[test]
+    fn warn_the_child_of_the_transition_group_component_has_sequential_index() {
+        let (_ast, warnings) = parse("<div><transition-group><i v-for=\"(o, i) of arr\" :key=\"i\"></i></transition-group></div>");
+
+        assert_eq!(warnings.borrow().len(), 1);
+        assert_eq!(warnings.borrow()[0], "Do not use v-for index as key on <transition-group> children,\nthis is the same as not using keys.");
+    }
+
+    #[test]
+    fn v_pre_directive() {
+        let (ast, _warnings) = parse("<div v-pre id=\"message1\"><p>{{msg}}</p></div>");
+
+        let wrapper = ast.wrapper.borrow();
+        let root = wrapper.children[0].borrow();
+        assert_eq!(root.el.pre, true);
+        assert_eq!(root.el.attrs[0].name, "id");
+        assert_eq!(root.el.attrs[0].value, Some("message1".to_string()));
+        assert_eq!(
+            root.children[0].borrow().children[0].borrow().el.token.data,
+            Box::from("{{msg}}")
+        );
+    }
+
+    #[test]
+    fn v_pre_directive_should_leave_template_in_dom() {
+        let (ast, _warnings) = parse(
+            "<div v-pre id=\"message1\"><template id=\"template1\"><p>{{msg}}</p></template></div>",
+        );
+
+        let wrapper = ast.wrapper.borrow();
+        let root = wrapper.children[0].borrow();
+        assert_eq!(root.el.pre, true);
+        assert_eq!(root.el.attrs.len(), 1);
+        assert_eq!(root.el.attrs[0].name, "id");
+        assert_eq!(root.el.attrs[0].value, Some("message1".to_string()));
+        assert_eq!(root.children[0].borrow().el.attrs[0].name, "id");
+        assert_eq!(
+            root.children[0].borrow().el.attrs[0].value,
+            Some("template1".to_string())
+        );
+    }
+
+    #[test]
+    fn v_for_directive_basic_syntax() {
+        let (ast, _warnings) = parse("<ul><li v-for=\"item in items\"></li></ul>");
+
+        let wrapper = ast.wrapper.borrow();
+        let root = wrapper.children[0].borrow();
+        let list_item = root.children[0].borrow();
+
+        assert_eq!(list_item.el.for_value.as_ref().unwrap(), "items");
+        assert_eq!(list_item.el.alias.as_ref().unwrap(), "item");
+    }
+
+    #[test]
+    fn v_for_directive_iteration_syntax() {
+        let (ast, _warnings) = parse("<ul><li v-for=\"(item, index) in items\"></li></ul>");
+
+        let wrapper = ast.wrapper.borrow();
+        let root = wrapper.children[0].borrow();
+        let list_item = root.children[0].borrow();
+
+        assert_eq!(list_item.el.for_value.as_ref().unwrap(), "items");
+        assert_eq!(list_item.el.alias.as_ref().unwrap(), "item");
+        assert_eq!(list_item.el.iterator1.as_ref().unwrap(), "index");
+        assert_eq!(list_item.el.iterator2, None);
+    }
+
+    #[test]
+    fn v_for_directive_iteration_syntax_multiple() {
+        let (ast, _warnings) = parse("<ul><li v-for=\"(item, key, index) in items\"></li></ul>");
+
+        let wrapper = ast.wrapper.borrow();
+        let root = wrapper.children[0].borrow();
+        let list_item = root.children[0].borrow();
+
+        assert_eq!(list_item.el.for_value.as_ref().unwrap(), "items");
+        assert_eq!(list_item.el.alias.as_ref().unwrap(), "item");
+        assert_eq!(list_item.el.iterator1.as_ref().unwrap(), "key");
+        assert_eq!(list_item.el.iterator2.as_ref().unwrap(), "index");
+    }
+
+    #[test]
+    fn v_for_directive_key() {
+        let (ast, _warnings) =
+            parse("<ul><li v-for=\"item in items\" :key=\"item.uid\"></li></ul>");
+
+        let wrapper = ast.wrapper.borrow();
+        let root = wrapper.children[0].borrow();
+        let list_item = root.children[0].borrow();
+        assert_eq!(list_item.el.token.data, "li".into());
+        assert_eq!(list_item.el.for_value.as_ref().unwrap(), "items");
+        assert_eq!(list_item.el.alias.as_ref().unwrap(), "item");
+        assert_eq!(list_item.el.key.as_ref().unwrap(), "item.uid");
     }
 }
