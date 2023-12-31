@@ -533,7 +533,7 @@ impl ASTNode {
             if is_dev && children[i].borrow().el.token.data.as_ref() != " " {
                 self.warn.call(&format!(
                     "text \"{}\" between v-if and v-else(-if) will be ignored.",
-                    &children[i].borrow().el.token.data
+                    &children[i].borrow().el.token.data.trim()
                 ));
             }
 

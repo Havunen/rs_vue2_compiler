@@ -288,4 +288,56 @@ mod tests {
 
         assert_eq!(warnings.borrow().len(), 0);
     }
+
+    #[test]
+    fn warn_non_whitespace_text_between_v_if_conditions() {
+        let (ast, warnings) = parse("<div><div v-if=\"1\"></div> foo <div v-else></div></div>");
+
+        let wrapper = ast.wrapper.borrow();
+        let root = wrapper.children[0].borrow();
+        assert_eq!(root.children.len(), 1);
+        let the_div = root.children[0].borrow();
+        assert_eq!(the_div.el.if_conditions.as_ref().unwrap().len(), 2);
+
+        let if_conditions = the_div.el.if_conditions.as_ref().unwrap();
+        assert_eq!(if_conditions[0].block_id, 2);
+        assert_eq!(if_conditions[0].exp.as_ref().unwrap(), "1");
+        assert_eq!(if_conditions[1].block_id, 4);
+        assert_eq!(if_conditions[1].exp, None);
+
+        assert_eq!(warnings.borrow().len(), 1);
+        assert_eq!(warnings.borrow()[0], "text \"foo\" between v-if and v-else(-if) will be ignored.");
+    }
+
+    #[test]
+    fn not_warn_2_root_elements_with_v_if_and_v_else() {
+        let (ast, warnings) = parse("<div v-if=\"1\"></div><div v-else></div>");
+
+        let wrapper = ast.wrapper.borrow();
+        let root = wrapper.children[0].borrow();
+
+        assert_eq!(root.el.if_conditions.as_ref().unwrap().len(), 2);
+
+        assert_eq!(warnings.borrow().len(), 0);
+    }
+
+    #[test]
+    fn not_warn_3_root_elements_with_v_if_v_else_if_and_v_else() {
+        let (ast, warnings) = parse("<div v-if=\"1\"></div><div v-else-if=\"2\"></div><div v-else></div>");
+
+        let wrapper = ast.wrapper.borrow();
+        let root = wrapper.children[0].borrow();
+
+        assert_eq!(root.el.if_conditions.as_ref().unwrap().len(), 3);
+
+        let if_conditions = root.el.if_conditions.as_ref().unwrap();
+        assert_eq!(if_conditions[0].block_id, 1);
+        assert_eq!(if_conditions[0].exp.as_ref().unwrap(), "1");
+        assert_eq!(if_conditions[1].block_id, 2);
+        assert_eq!(if_conditions[1].exp.as_ref().unwrap(), "2");
+        assert_eq!(if_conditions[2].block_id, 3);
+        assert_eq!(if_conditions[2].exp, None);
+
+        assert_eq!(warnings.borrow().len(), 0);
+    }
 }

@@ -255,7 +255,7 @@ impl VueParser {
                         }
                         // tree management
                         if stack.is_empty() && node.id != 1 {
-                            if root_tree.get(0).unwrap().borrow().el.if_val.is_some()
+                            if root_tree.get(1).unwrap().borrow().el.if_val.is_some()
                                 && (node.el.else_if_val.is_some() || node.el.is_else)
                             {
                                 if is_dev {
