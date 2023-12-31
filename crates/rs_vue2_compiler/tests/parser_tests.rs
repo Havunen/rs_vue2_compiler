@@ -180,7 +180,7 @@ mod tests {
         assert_eq!(warnings.borrow().len(), 1);
         assert_eq!(
             warnings.borrow()[0],
-            "text outside root element will be ignored."
+            "text \"before root {{ interpolation }}\" outside root element will be ignored."
         );
     }
 
@@ -195,7 +195,7 @@ mod tests {
         assert_eq!(warnings.borrow().len(), 1);
         assert_eq!(
             warnings.borrow()[0],
-            "text outside root element will be ignored."
+            "text \"after root {{ interpolation }}\" outside root element will be ignored."
         );
     }
 
@@ -337,6 +337,18 @@ mod tests {
         assert_eq!(if_conditions[1].exp.as_ref().unwrap(), "2");
         assert_eq!(if_conditions[2].block_id, 3);
         assert_eq!(if_conditions[2].exp, None);
+
+        assert_eq!(warnings.borrow().len(), 0);
+    }
+
+    #[test]
+    fn not_warn_2_root_elements_with_v_if_and_v_else_on_separate_lines() {
+        let (ast, warnings) = parse("<div v-if=\"1\"></div>\n<div v-else></div>");
+
+        let wrapper = ast.wrapper.borrow();
+        let root = wrapper.children[0].borrow();
+
+        assert_eq!(root.el.if_conditions.as_ref().unwrap().len(), 2);
 
         assert_eq!(warnings.borrow().len(), 0);
     }

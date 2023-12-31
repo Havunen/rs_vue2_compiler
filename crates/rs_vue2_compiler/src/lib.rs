@@ -379,7 +379,11 @@ impl VueParser {
                             if &token.data.as_ref() == &template {
                                 self.warn.call("Component template requires a root element, rather than just text.")
                             } else {
-                                self.warn.call("text outside root element will be ignored.");
+                                let text_trimmed = token.data.trim();
+
+                                if !text_trimmed.is_empty() {
+                                    self.warn.call(&format!("text \"{}\" outside root element will be ignored.", text_trimmed));
+                                }
                             }
                         }
 
