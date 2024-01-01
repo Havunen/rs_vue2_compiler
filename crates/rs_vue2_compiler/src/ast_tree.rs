@@ -86,7 +86,7 @@ pub struct ASTElement {
     pub ref_in_for: bool,
     pub ns: Option<&'static str>,
 
-    pub component: bool,
+    pub component: Option<String>,
     pub inline_template: bool,
 
     pub attrs: Vec<AttrItem>,
@@ -151,7 +151,7 @@ pub fn create_ast_element(token: Token, kind: ASTElementKind) -> ASTElement {
         key: None,
         ref_in_for: false,
         ns: None,
-        component: false,
+        component: None,
         inline_template: false,
         attrs: vec![],
         scoped_slots: None,
@@ -328,7 +328,7 @@ impl ASTNode {
                 }
             }
 
-            self.warn.call("Missing v-for expression.");
+            self.warn.call("Invalid v-for expression");
         }
     }
 
@@ -626,9 +626,9 @@ impl ASTNode {
     // handle <slot/> outlets
     pub fn process_slot_outlet(&mut self) {
         if self.el.token.data.eq_ignore_ascii_case("slot") {
-            let slot_name = self.get_binding_attr("name", false);
+            let slot_name = self.get_binding_attr("name", true);
 
-            if slot_name.is_empty() {
+            if !slot_name.is_empty() {
                 self.el.slot_name = Some(slot_name);
             }
 
@@ -644,10 +644,10 @@ impl ASTNode {
     }
 
     pub fn process_component(&mut self) {
-        let binding = self.get_binding_attr("is", false);
+        let binding = self.get_binding_attr("is", true);
 
         if !binding.is_empty() {
-            self.el.component = true;
+            self.el.component = Some(binding);
         }
 
         if self.get_and_remove_attr("inline-template", false).is_some() {
@@ -656,7 +656,7 @@ impl ASTNode {
     }
 
     pub fn process_key(&mut self) {
-        let exp = self.get_binding_attr(&UC_KEY, false);
+        let exp = self.get_binding_attr(&UC_KEY, true);
 
         if !exp.is_empty() {
             if self.is_dev {
@@ -988,7 +988,7 @@ Consider using an array of objects and use v-model on an object property instead
 
     // TODO: Finish this
     pub fn is_maybe_component(&self) -> bool {
-        self.el.component || self.has_raw_attr("is") || self.has_raw_attr("v-bind:is")
+        self.el.component.is_some() || self.has_raw_attr("is") || self.has_raw_attr("v-bind:is")
         // !(self.el.token.attrs.attrsMap.is ? isReservedTag(el.attrsMap.is) : isReservedTag(el.tag))
     }
     pub fn process_attrs(&mut self) {

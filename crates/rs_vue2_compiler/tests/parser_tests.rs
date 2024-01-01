@@ -629,4 +629,290 @@ mod tests {
         assert_eq!(list_item.el.alias.as_ref().unwrap(), "item");
         assert_eq!(list_item.el.key.as_ref().unwrap(), "item.uid");
     }
+
+    #[test]
+    fn v_for_directive_destructuring() {
+        let (ast, _warnings) = parse("<ul><li v-for=\"{ foo } in items\"></li></ul>");
+        let binding = ast.wrapper.borrow();
+        let ul_ast = binding.children[0].borrow();
+        let li_ast = ul_ast.children[0].borrow();
+        assert_eq!(li_ast.el.for_value.as_ref().unwrap(), "items");
+        assert_eq!(li_ast.el.alias.as_ref().unwrap(), "{ foo }");
+
+        // with paren
+        let (ast, _warnings) = parse("<ul><li v-for=\"({ foo }) in items\"></li></ul>");
+        let binding = ast.wrapper.borrow();
+        let ul_ast = binding.children[0].borrow();
+        let li_ast = ul_ast.children[0].borrow();
+        assert_eq!(li_ast.el.for_value.as_ref().unwrap(), "items");
+        assert_eq!(li_ast.el.alias.as_ref().unwrap(), "{ foo }");
+
+        // multi-var destructuring
+        let (ast, _warnings) = parse("<ul><li v-for=\"{ foo, bar, baz } in items\"></li></ul>");
+        let binding = ast.wrapper.borrow();
+        let ul_ast = binding.children[0].borrow();
+        let li_ast = ul_ast.children[0].borrow();
+        assert_eq!(li_ast.el.for_value.as_ref().unwrap(), "items");
+        assert_eq!(li_ast.el.alias.as_ref().unwrap(), "{ foo, bar, baz }");
+
+        // multi-var destructuring with paren
+        let (ast, _warnings) = parse("<ul><li v-for=\"({ foo, bar, baz }) in items\"></li></ul>");
+        let binding = ast.wrapper.borrow();
+        let ul_ast = binding.children[0].borrow();
+        let li_ast = ul_ast.children[0].borrow();
+        assert_eq!(li_ast.el.for_value.as_ref().unwrap(), "items");
+        assert_eq!(li_ast.el.alias.as_ref().unwrap(), "{ foo, bar, baz }");
+
+        // with index
+        let (ast, _warnings) = parse("<ul><li v-for=\"({ foo }, i) in items\"></li></ul>");
+        let binding = ast.wrapper.borrow();
+        let ul_ast = binding.children[0].borrow();
+        let li_ast = ul_ast.children[0].borrow();
+        assert_eq!(li_ast.el.for_value.as_ref().unwrap(), "items");
+        assert_eq!(li_ast.el.alias.as_ref().unwrap(), "{ foo }");
+        assert_eq!(li_ast.el.iterator1.as_ref().unwrap(), "i");
+
+        // with key + index
+        let (ast, _warnings) = parse("<ul><li v-for=\"({ foo }, i, j) in items\"></li></ul>");
+        let binding = ast.wrapper.borrow();
+        let ul_ast = binding.children[0].borrow();
+        let li_ast = ul_ast.children[0].borrow();
+        assert_eq!(li_ast.el.for_value.as_ref().unwrap(), "items");
+        assert_eq!(li_ast.el.alias.as_ref().unwrap(), "{ foo }");
+        assert_eq!(li_ast.el.iterator1.as_ref().unwrap(), "i");
+        assert_eq!(li_ast.el.iterator2.as_ref().unwrap(), "j");
+
+        // multi-var destructuring with index
+        let (ast, _warnings) = parse("<ul><li v-for=\"({ foo, bar, baz }, i) in items\"></li></ul>");
+        let binding = ast.wrapper.borrow();
+        let ul_ast = binding.children[0].borrow();
+        let li_ast = ul_ast.children[0].borrow();
+        assert_eq!(li_ast.el.for_value.as_ref().unwrap(), "items");
+        assert_eq!(li_ast.el.alias.as_ref().unwrap(), "{ foo, bar, baz }");
+        assert_eq!(li_ast.el.iterator1.as_ref().unwrap(), "i");
+
+        // array
+        let (ast, _warnings) = parse("<ul><li v-for=\"[ foo ] in items\"></li></ul>");
+        let binding = ast.wrapper.borrow();
+        let ul_ast = binding.children[0].borrow();
+        let li_ast = ul_ast.children[0].borrow();
+        assert_eq!(li_ast.el.for_value.as_ref().unwrap(), "items");
+        assert_eq!(li_ast.el.alias.as_ref().unwrap(), "[ foo ]");
+
+        // multi-array
+        let (ast, _warnings) = parse("<ul><li v-for=\"[ foo, bar, baz ] in items\"></li></ul>");
+        let binding = ast.wrapper.borrow();
+        let ul_ast = binding.children[0].borrow();
+        let li_ast = ul_ast.children[0].borrow();
+        assert_eq!(li_ast.el.for_value.as_ref().unwrap(), "items");
+        assert_eq!(li_ast.el.alias.as_ref().unwrap(), "[ foo, bar, baz ]");
+
+        // array with paren
+        let (ast, _warnings) = parse("<ul><li v-for=\"([ foo ]) in items\"></li></ul>");
+        let binding = ast.wrapper.borrow();
+        let ul_ast = binding.children[0].borrow();
+        let li_ast = ul_ast.children[0].borrow();
+        assert_eq!(li_ast.el.for_value.as_ref().unwrap(), "items");
+        assert_eq!(li_ast.el.alias.as_ref().unwrap(), "[ foo ]");
+
+        // multi-array with paren
+        let (ast, _warnings) = parse("<ul><li v-for=\"([ foo, bar, baz ]) in items\"></li></ul>");
+        let binding = ast.wrapper.borrow();
+        let ul_ast = binding.children[0].borrow();
+        let li_ast = ul_ast.children[0].borrow();
+        assert_eq!(li_ast.el.for_value.as_ref().unwrap(), "items");
+        assert_eq!(li_ast.el.alias.as_ref().unwrap(), "[ foo, bar, baz ]");
+
+        // array with index
+        let (ast, _warnings) = parse("<ul><li v-for=\"([ foo ], i) in items\"></li></ul>");
+        let binding = ast.wrapper.borrow();
+        let ul_ast = binding.children[0].borrow();
+        let li_ast = ul_ast.children[0].borrow();
+        assert_eq!(li_ast.el.for_value.as_ref().unwrap(), "items");
+        assert_eq!(li_ast.el.alias.as_ref().unwrap(), "[ foo ]");
+        assert_eq!(li_ast.el.iterator1.as_ref().unwrap(), "i");
+
+        // array with key + index
+        let (ast, _warnings) = parse("<ul><li v-for=\"([ foo ], i, j) in items\"></li></ul>");
+        let binding = ast.wrapper.borrow();
+        let ul_ast = binding.children[0].borrow();
+        let li_ast = ul_ast.children[0].borrow();
+        assert_eq!(li_ast.el.for_value.as_ref().unwrap(), "items");
+        assert_eq!(li_ast.el.alias.as_ref().unwrap(), "[ foo ]");
+        assert_eq!(li_ast.el.iterator1.as_ref().unwrap(), "i");
+        assert_eq!(li_ast.el.iterator2.as_ref().unwrap(), "j");
+
+        // multi-array with paren
+        let (ast, _warnings) = parse("<ul><li v-for=\"([ foo, bar, baz ]) in items\"></li></ul>");
+        let binding = ast.wrapper.borrow();
+        let ul_ast = binding.children[0].borrow();
+        let li_ast = ul_ast.children[0].borrow();
+        assert_eq!(li_ast.el.for_value.as_ref().unwrap(), "items");
+        assert_eq!(li_ast.el.alias.as_ref().unwrap(), "[ foo, bar, baz ]");
+
+        // multi-array with index
+        let (ast, _warnings) = parse("<ul><li v-for=\"([ foo, bar, baz ], i) in items\"></li></ul>");
+        let binding = ast.wrapper.borrow();
+        let ul_ast = binding.children[0].borrow();
+        let li_ast = ul_ast.children[0].borrow();
+        assert_eq!(li_ast.el.for_value.as_ref().unwrap(), "items");
+        assert_eq!(li_ast.el.alias.as_ref().unwrap(), "[ foo, bar, baz ]");
+        assert_eq!(li_ast.el.iterator1.as_ref().unwrap(), "i");
+
+        // nested
+        let (ast, _warnings) = parse("<ul><li v-for=\"({ foo, bar: { baz }, qux: [ n ] }, i, j) in items\"></li></ul>");
+        let binding = ast.wrapper.borrow();
+        let ul_ast = binding.children[0].borrow();
+        let li_ast = ul_ast.children[0].borrow();
+        assert_eq!(li_ast.el.for_value.as_ref().unwrap(), "items");
+        assert_eq!(li_ast.el.alias.as_ref().unwrap(), "{ foo, bar: { baz }, qux: [ n ] }");
+        assert_eq!(li_ast.el.iterator1.as_ref().unwrap(), "i");
+        assert_eq!(li_ast.el.iterator2.as_ref().unwrap(), "j");
+
+        // array nested
+        let (ast, _warnings) = parse("<ul><li v-for=\"([ foo, { bar }, baz ], i, j) in items\"></li></ul>");
+        let binding = ast.wrapper.borrow();
+        let ul_ast = binding.children[0].borrow();
+        let li_ast = ul_ast.children[0].borrow();
+        assert_eq!(li_ast.el.for_value.as_ref().unwrap(), "items");
+        assert_eq!(li_ast.el.alias.as_ref().unwrap(), "[ foo, { bar }, baz ]");
+        assert_eq!(li_ast.el.iterator1.as_ref().unwrap(), "i");
+        assert_eq!(li_ast.el.iterator2.as_ref().unwrap(), "j");
+    }
+
+    #[test]
+    fn v_for_directive_invalid_syntax() {
+        let (_ast, warnings) = parse("<ul><li v-for=\"item into items\"></li></ul>");
+
+        assert_eq!(warnings.borrow().len(), 1);
+        assert_eq!(warnings.borrow()[0], "Invalid v-for expression");
+    }
+
+    #[test]
+    fn v_if_directive_syntax() {
+        let (ast, _warnings) = parse("<p v-if=\"show\">hello world</p>");
+
+        let wrapper = ast.wrapper.borrow();
+        let root = wrapper.children[0].borrow();
+        assert_eq!(root.el.if_val.as_ref().unwrap(), "show");
+        assert_eq!(root.el.if_conditions.as_ref().unwrap()[0].exp.as_ref().unwrap(), "show");
+    }
+
+    #[test]
+    fn v_else_if_directive_syntax() {
+        let (ast, _warnings) = parse("<div><p v-if=\"show\">hello</p><span v-else-if=\"2\">elseif</span><p v-else>world</p></div>");
+
+        let wrapper = ast.wrapper.borrow();
+        let root = wrapper.children[0].borrow();
+        let if_ast = root.children[0].borrow();
+        let conditions_ast = if_ast.el.if_conditions.as_ref().unwrap();
+
+        assert_eq!(conditions_ast.len(), 3);
+        assert_eq!(conditions_ast[0].block_id, 2);
+        assert_eq!(conditions_ast[0].exp.as_ref().unwrap(), "show");
+        assert_eq!(conditions_ast[1].block_id, 4);
+        assert_eq!(conditions_ast[1].exp.as_ref().unwrap(), "2");
+        assert_eq!(conditions_ast[2].block_id, 6);
+        assert_eq!(conditions_ast[2].exp, None);
+    }
+
+    #[test]
+    fn v_else_directive_syntax() {
+        let (ast, _warnings) = parse("<div><p v-if=\"show\">hello</p><p v-else>world</p></div>");
+
+        let wrapper = ast.wrapper.borrow();
+        let root = wrapper.children[0].borrow();
+        let if_ast = root.children[0].borrow();
+        let conditions_ast = if_ast.el.if_conditions.as_ref().unwrap();
+
+        assert_eq!(conditions_ast.len(), 2);
+        assert_eq!(conditions_ast[0].block_id, 2);
+        assert_eq!(conditions_ast[0].exp.as_ref().unwrap(), "show");
+        assert_eq!(conditions_ast[1].block_id, 4);
+        assert_eq!(conditions_ast[1].exp, None);
+    }
+
+    #[test]
+    fn v_else_if_directive_invalid_syntax() {
+        let (_ast, warnings) = parse("<div><p v-else-if=\"1\">world</p></div>");
+
+        assert_eq!(warnings.borrow().len(), 1);
+        assert_eq!(warnings.borrow()[0], "v-else-if=\"1\" used on element <p> without corresponding v-if.");
+    }
+
+    #[test]
+    fn v_else_directive_invalid_syntax() {
+        let (_ast, warnings) = parse("<div><p v-else>world</p></div>");
+
+        assert_eq!(warnings.borrow().len(), 1);
+        assert_eq!(warnings.borrow()[0], "v-else used on element <p> without corresponding v-if.");
+    }
+
+    #[test]
+    fn v_once_directive_syntax() {
+        let (ast, _warnings) = parse("<p v-once>world</p>");
+
+        let wrapper = ast.wrapper.borrow();
+        let root = wrapper.children[0].borrow();
+        assert_eq!(root.el.once, true);
+    }
+
+    #[test]
+    fn slot_tag_single_syntax() {
+        let (ast, _warnings) = parse("<div><slot></slot></div>");
+
+        let wrapper = ast.wrapper.borrow();
+        let root = wrapper.children[0].borrow();
+        let slot = root.children[0].borrow();
+        assert_eq!(slot.el.token.data, Box::from("slot"));
+        assert_eq!(slot.el.slot_name, None);
+    }
+
+    #[test]
+    fn slot_tag_named_syntax() {
+        let (ast, _warnings) = parse("<div><slot name=\"one\">hello world</slot></div>");
+
+        let wrapper = ast.wrapper.borrow();
+        let root = wrapper.children[0].borrow();
+        let slot = root.children[0].borrow();
+        assert_eq!(slot.el.token.data, Box::from("slot"));
+        assert_eq!(slot.el.slot_name.as_ref().unwrap(), "one");
+    }
+
+    #[test]
+    fn slot_target() {
+        let (ast, _warnings) = parse("<p slot=\"one\">hello world</p>");
+
+        let wrapper = ast.wrapper.borrow();
+        let root = wrapper.children[0].borrow();
+        assert_eq!(root.el.slot_target.as_ref().unwrap(), "one");
+    }
+
+    #[test]
+    fn component_properties() {
+        let (ast, _warnings) = parse("<my-component :msg=\"hello\"></my-component>");
+
+        let wrapper = ast.wrapper.borrow();
+        let root = wrapper.children[0].borrow();
+        assert_eq!(root.el.attrs[0].name, "msg");
+        assert_eq!(root.el.attrs[0].value, Some("hello".to_string()));
+    }
+
+    #[test]
+    fn component_is_attribute() {
+        let (ast, _warnings) = parse("<my-component is=\"component1\"></my-component>");
+
+        let wrapper = ast.wrapper.borrow();
+        let root = wrapper.children[0].borrow();
+        assert_eq!(root.el.component.as_ref().unwrap(), "component1");
+    }
+
+    #[test]
+    fn component_inline_template_attribute() {
+        let (ast, _warnings) = parse("<my-component inline-template>hello world</my-component>");
+
+        let wrapper = ast.wrapper.borrow();
+        let root = wrapper.children[0].borrow();
+        assert_eq!(root.el.inline_template, true);
+    }
 }
