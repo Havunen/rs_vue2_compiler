@@ -11,7 +11,7 @@ lazy_static! {
     static ref DEFAULT_REGEX: Arc<Regex> = Arc::new(Regex::new(r"\{\{((?:.|\r?\n)+?)}}").unwrap());
 }
 
-fn build_regex(delimiters: (String, String)) -> Arc<Regex> {
+fn build_regex(delimiters: &(String, String)) -> Arc<Regex> {
     let mut cache = REGEX_CACHE.lock().unwrap();
     if let Some(regex) = cache.get(&delimiters) {
         return Arc::clone(regex);
@@ -25,14 +25,14 @@ fn build_regex(delimiters: (String, String)) -> Arc<Regex> {
         ))
         .unwrap(),
     );
-    cache.insert(delimiters, Arc::clone(&regex));
+    cache.insert((open.to_string(), close.to_string()), Arc::clone(&regex));
 
     regex
 }
 
 pub fn parse_text(
     text: &str,
-    delimiters: Option<(String, String)>,
+    delimiters: &Option<(String, String)>,
 ) -> Option<(String, Vec<String>)> {
     let tag_re = match delimiters {
         Some(delimiters) => build_regex(delimiters),

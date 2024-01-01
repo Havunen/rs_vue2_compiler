@@ -2,8 +2,9 @@ use crate::directives_model::gen_assignment_code;
 use crate::filter_parser::parse_filters;
 use crate::helpers::{is_some_and_ref, to_camel, to_hyphen_case};
 use crate::uni_codes::{UC_KEY, UC_V_ELSE, UC_V_ELSE_IF, UC_V_FOR, UC_V_IF, UC_V_ONCE, UC_V_PRE};
-use crate::util::{modifier_regex_replace_all_matches, prepend_modifier_marker};
+use crate::util::{get_attribute, modifier_regex_replace_all_matches, prepend_modifier_marker};
 use crate::warn_logger::WarnLogger;
+use crate::web::attrs::must_use_prop;
 use crate::{
     ARG_RE, BIND_RE, DIR_RE, DYNAMIC_ARG_RE, FOR_ALIAS_RE, FOR_ITERATOR_RE, MODIFIER_RE, ON_RE,
     PROP_BIND_RE, SLOT_RE, STRIP_PARENS_RE,
@@ -76,6 +77,9 @@ pub struct ASTElement {
 
     pub new_slot_syntax: bool,
 
+    pub static_class: Option<String>,
+    pub class_binding: Option<String>,
+
     // extra
     pub forbidden: bool,
     pub pre: bool,
@@ -123,6 +127,8 @@ pub struct ASTElement {
     pub has_bindings: bool,
     pub kind: ASTElementKind,
     pub is_comment: bool,
+    pub static_style: Option<String>,
+    pub style_binding: Option<String>,
 }
 
 pub fn create_ast_element(token: Token, kind: ASTElementKind) -> ASTElement {
@@ -159,6 +165,7 @@ pub fn create_ast_element(token: Token, kind: ASTElementKind) -> ASTElement {
         dynamic_attrs: vec![],
         slot_target_dynamic: false,
         new_slot_syntax: false,
+        static_class: None,
         has_bindings: false,
         props: vec![],
         directives: None,
@@ -166,6 +173,9 @@ pub fn create_ast_element(token: Token, kind: ASTElementKind) -> ASTElement {
         native_events: None,
         tokens: None,
         is_comment: false,
+        static_style: None,
+        class_binding: None,
+        style_binding: None,
     }
 }
 
@@ -177,8 +187,8 @@ pub struct ASTNode {
     pub parent: Option<Weak<RefCell<ASTNode>>>,
 
     // TODO: internal helpers, move these somewhere else
-    is_dev: bool,
-    warn: Box<dyn WarnLogger>,
+    pub is_dev: bool,
+    pub warn: Box<dyn WarnLogger>,
 }
 
 impl fmt::Debug for ASTNode {
@@ -919,7 +929,7 @@ impl ASTNode {
             dynamic: is_dynamic,
             quote_type,
         };
-        self.el.attrs.push(item);
+        self.el.props.push(item);
     }
 
     pub fn check_in_for(&self) -> bool {
@@ -998,7 +1008,7 @@ Consider using an array of objects and use v-model on an object property instead
 
         // TODO: Get rid off this clone
         let attrs = self.el.token.attrs.clone().unwrap();
-        for (orig_name, orig_val) in attrs.iter() {
+        for (orig_name, orig_val) in attrs.iter().rev() {
             self.process_attr(&orig_name, &orig_val);
         }
     }
@@ -1098,8 +1108,14 @@ Consider using an array of objects and use v-model on an object property instead
                     (None, QuoteType::NoValue)
                 };
 
-                if is_some_and_ref(&modifiers_option, |modifiers| modifiers.contains("prop")) {
-                    // TODO: (!el.component && platformMustUseProp(el.tag, el.attrsMap.type, name))
+                if (is_some_and_ref(&modifiers_option, |modifiers| modifiers.contains("prop")))
+                    || (self.el.component.is_none()
+                        && must_use_prop(
+                            &self.el.token.data,
+                            get_attribute(&self.el.token, "type"),
+                            &name_str,
+                        ))
+                {
                     self.insert_into_props(&name_str, attr_value.0, attr_value.1, is_dynamic);
                 } else {
                     self.insert_into_attrs(&name_str, attr_value.0, attr_value.1, is_dynamic);

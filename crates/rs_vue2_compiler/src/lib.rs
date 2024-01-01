@@ -25,6 +25,7 @@ use rs_html_parser_tokenizer::TokenizerOptions;
 use rs_html_parser_tokens::{Token, TokenKind};
 use std::cell::{RefCell, RefMut};
 use std::collections::VecDeque;
+use std::format;
 use std::rc::Rc;
 use unicase_collections::unicase_btree_map::UniCaseBTreeMap;
 
@@ -67,6 +68,20 @@ pub struct CompilerOptions {
     pub is_pre_tag: Option<fn(tag: &str) -> bool>,
     pub get_namespace: Option<fn(tag: &str) -> Option<&'static str>>,
     pub warn: Option<Box<dyn WarnLogger>>,
+    pub delimiters: Option<(String, String)>,
+
+    pub modules: Vec<Box<dyn ModuleApi>>,
+}
+
+pub trait ModuleApi {
+    fn transform_node(&self, node: &mut ASTNode, options: &CompilerOptions);
+    fn gen_data(&self, node: &ASTNode) -> Option<String>;
+    fn static_keys(&self) -> Vec<&'static str>;
+    fn pre_transform_node(
+        &self,
+        node: &mut ASTNode,
+        tree: &ASTTree,
+    ) -> Option<Rc<RefCell<ASTNode>>>;
 }
 
 fn is_forbidden_tag(el: &Token) -> bool {
@@ -176,7 +191,7 @@ impl VueParser {
                         create_ast_element(token, ASTElementKind::Element),
                         current_parent_id,
                         is_dev,
-                        self.warn.clone(),
+                        self.warn.clone_box(),
                     );
                     let mut node = node_rc.borrow_mut();
                     let node_id = node.id;
@@ -427,7 +442,7 @@ impl VueParser {
 
             if !&final_text.is_empty() {
                 if !self.in_v_pre {
-                    parse_text_result = parse_text(&final_text, None);
+                    parse_text_result = parse_text(&final_text, &None);
                 } else {
                     parse_text_result = None;
                 }

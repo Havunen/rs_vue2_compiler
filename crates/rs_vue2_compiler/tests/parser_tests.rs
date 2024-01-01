@@ -19,6 +19,8 @@ mod tests {
             warn: Some(Box::new(move |msg: &str| {
                 warnings_clone.borrow_mut().push(msg.to_string());
             })),
+            delimiters: None,
+            modules: vec![],
         });
 
         (parser.parse(template), warnings)
@@ -683,7 +685,8 @@ mod tests {
         assert_eq!(li_ast.el.iterator2.as_ref().unwrap(), "j");
 
         // multi-var destructuring with index
-        let (ast, _warnings) = parse("<ul><li v-for=\"({ foo, bar, baz }, i) in items\"></li></ul>");
+        let (ast, _warnings) =
+            parse("<ul><li v-for=\"({ foo, bar, baz }, i) in items\"></li></ul>");
         let binding = ast.wrapper.borrow();
         let ul_ast = binding.children[0].borrow();
         let li_ast = ul_ast.children[0].borrow();
@@ -751,7 +754,8 @@ mod tests {
         assert_eq!(li_ast.el.alias.as_ref().unwrap(), "[ foo, bar, baz ]");
 
         // multi-array with index
-        let (ast, _warnings) = parse("<ul><li v-for=\"([ foo, bar, baz ], i) in items\"></li></ul>");
+        let (ast, _warnings) =
+            parse("<ul><li v-for=\"([ foo, bar, baz ], i) in items\"></li></ul>");
         let binding = ast.wrapper.borrow();
         let ul_ast = binding.children[0].borrow();
         let li_ast = ul_ast.children[0].borrow();
@@ -760,17 +764,23 @@ mod tests {
         assert_eq!(li_ast.el.iterator1.as_ref().unwrap(), "i");
 
         // nested
-        let (ast, _warnings) = parse("<ul><li v-for=\"({ foo, bar: { baz }, qux: [ n ] }, i, j) in items\"></li></ul>");
+        let (ast, _warnings) = parse(
+            "<ul><li v-for=\"({ foo, bar: { baz }, qux: [ n ] }, i, j) in items\"></li></ul>",
+        );
         let binding = ast.wrapper.borrow();
         let ul_ast = binding.children[0].borrow();
         let li_ast = ul_ast.children[0].borrow();
         assert_eq!(li_ast.el.for_value.as_ref().unwrap(), "items");
-        assert_eq!(li_ast.el.alias.as_ref().unwrap(), "{ foo, bar: { baz }, qux: [ n ] }");
+        assert_eq!(
+            li_ast.el.alias.as_ref().unwrap(),
+            "{ foo, bar: { baz }, qux: [ n ] }"
+        );
         assert_eq!(li_ast.el.iterator1.as_ref().unwrap(), "i");
         assert_eq!(li_ast.el.iterator2.as_ref().unwrap(), "j");
 
         // array nested
-        let (ast, _warnings) = parse("<ul><li v-for=\"([ foo, { bar }, baz ], i, j) in items\"></li></ul>");
+        let (ast, _warnings) =
+            parse("<ul><li v-for=\"([ foo, { bar }, baz ], i, j) in items\"></li></ul>");
         let binding = ast.wrapper.borrow();
         let ul_ast = binding.children[0].borrow();
         let li_ast = ul_ast.children[0].borrow();
@@ -795,7 +805,13 @@ mod tests {
         let wrapper = ast.wrapper.borrow();
         let root = wrapper.children[0].borrow();
         assert_eq!(root.el.if_val.as_ref().unwrap(), "show");
-        assert_eq!(root.el.if_conditions.as_ref().unwrap()[0].exp.as_ref().unwrap(), "show");
+        assert_eq!(
+            root.el.if_conditions.as_ref().unwrap()[0]
+                .exp
+                .as_ref()
+                .unwrap(),
+            "show"
+        );
     }
 
     #[test]
@@ -837,7 +853,10 @@ mod tests {
         let (_ast, warnings) = parse("<div><p v-else-if=\"1\">world</p></div>");
 
         assert_eq!(warnings.borrow().len(), 1);
-        assert_eq!(warnings.borrow()[0], "v-else-if=\"1\" used on element <p> without corresponding v-if.");
+        assert_eq!(
+            warnings.borrow()[0],
+            "v-else-if=\"1\" used on element <p> without corresponding v-if."
+        );
     }
 
     #[test]
@@ -845,7 +864,10 @@ mod tests {
         let (_ast, warnings) = parse("<div><p v-else>world</p></div>");
 
         assert_eq!(warnings.borrow().len(), 1);
-        assert_eq!(warnings.borrow()[0], "v-else used on element <p> without corresponding v-if.");
+        assert_eq!(
+            warnings.borrow()[0],
+            "v-else used on element <p> without corresponding v-if."
+        );
     }
 
     #[test]
@@ -914,5 +936,86 @@ mod tests {
         let wrapper = ast.wrapper.borrow();
         let root = wrapper.children[0].borrow();
         assert_eq!(root.el.inline_template, true);
+    }
+
+    #[test]
+    fn class_binding() {
+        // static
+        let (ast1, _warnings) = parse("<p class=\"class1\">hello world</p>");
+        let binding = ast1.wrapper.borrow();
+        let p_ast1 = binding.children[0].borrow();
+        assert_eq!(p_ast1.el.attrs[0].name, "class");
+        assert_eq!(p_ast1.el.attrs[0].value.as_ref().unwrap(), "class1");
+
+        // dynamic
+        let (ast2, _warnings) = parse("<p :class=\"class1\">hello world</p>");
+        let binding2 = ast2.wrapper.borrow();
+        let p_ast2 = binding2.children[0].borrow();
+        assert_eq!(p_ast2.el.props[0].name, "class");
+        assert_eq!(p_ast2.el.props[0].value.as_ref().unwrap(), "class1");
+
+        // interpolation warning
+        let (_ast, warnings) = parse("<p class=\"{{error}}\">hello world</p>");
+        assert_eq!(warnings.borrow().len(), 1);
+        assert_eq!(warnings.borrow()[0], "Interpolation inside attributes has been removed. Use v-bind or the colon shorthand instead. For example, instead of <div class=\"{{ val }}\">, use <div :class=\"val\">.");
+    }
+
+    #[test]
+    fn style_binding() {
+        let (ast, _warnings) = parse("<p :style=\"error\">hello world</p>");
+        let binding = ast.wrapper.borrow();
+        let p_ast = binding.children[0].borrow();
+        assert_eq!(p_ast.el.props[0].name, "style");
+        assert_eq!(p_ast.el.props[0].value.as_ref().unwrap(), "error");
+    }
+
+    #[test]
+    fn attribute_with_v_bind() {
+        let (ast, _warnings) = parse("<input type=\"text\" name=\"field1\" :value=\"msg\">");
+        let binding = ast.wrapper.borrow();
+        let input_ast = binding.children[0].borrow();
+        assert_eq!(input_ast.el.attrs[0].name, "type");
+        assert_eq!(input_ast.el.attrs[0].value.as_ref().unwrap(), "text");
+        assert_eq!(input_ast.el.attrs[1].name, "name");
+        assert_eq!(input_ast.el.attrs[1].value.as_ref().unwrap(), "field1");
+        assert_eq!(input_ast.el.props[0].name, "value");
+        assert_eq!(input_ast.el.props[0].value.as_ref().unwrap(), "msg");
+    }
+
+    #[test]
+    fn empty_v_bind_expression() {
+        let (_ast, warnings) = parse("<div :empty-msg=\"\"></div>");
+        assert_eq!(warnings.borrow().len(), 1);
+        assert_eq!(
+            warnings.borrow()[0],
+            "The value for a v-bind expression cannot be empty. Found in \"v-bind:empty-msg\""
+        );
+    }
+
+    #[test]
+    fn v_bind_prop_shorthand_syntax() {
+        let (ast, _warnings) = parse("<div .id=\"foo\"></div>");
+        let binding = ast.wrapper.borrow();
+        let div_ast = binding.children[0].borrow();
+        assert_eq!(div_ast.el.props[0].name, "id");
+        assert_eq!(div_ast.el.props[0].value.as_ref().unwrap(), "foo");
+    }
+
+    #[test]
+    fn v_bind_prop_shorthand_syntax_with_modifiers() {
+        let (ast, _warnings) = parse("<div .id.mod=\"foo\"></div>");
+        let binding = ast.wrapper.borrow();
+        let div_ast = binding.children[0].borrow();
+        assert_eq!(div_ast.el.props[0].name, "id");
+        assert_eq!(div_ast.el.props[0].value.as_ref().unwrap(), "foo");
+    }
+
+    #[test]
+    fn v_bind_prop_shorthand_dynamic_argument() {
+        let (ast, _warnings) = parse("<div .[id]=\"foo\"></div>");
+        let binding = ast.wrapper.borrow();
+        let div_ast = binding.children[0].borrow();
+        assert_eq!(div_ast.el.props[0].name, "id");
+        assert_eq!(div_ast.el.props[0].value.as_ref().unwrap(), "foo");
     }
 }
