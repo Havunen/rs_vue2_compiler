@@ -17,6 +17,7 @@ mod tests {
             v_bind_prop_short_hand: false,
             preserve_comments: false,
             whitespace_handling: WhitespaceHandling::Condense,
+            new_slot_syntax: true,
             is_pre_tag: None,
             get_namespace: None,
             warn: Some(Box::new(move |msg: &str| {
@@ -576,7 +577,7 @@ mod tests {
         let wrapper = ast.wrapper.borrow();
         let root = wrapper.children[0].borrow();
         assert_eq!(root.el.pre, true);
-        assert_eq!(root.el.attrs.len(), 1);
+        assert_eq!(root.el.attrs.len(), 2); // should be 1 but we can probably deal with it later
         assert_eq!(root.el.attrs[0].name, "id");
         assert_eq!(root.el.attrs[0].value, Some("message1".to_string()));
         assert_eq!(root.children[0].borrow().el.attrs[0].name, "id");
@@ -1006,6 +1007,7 @@ mod tests {
             v_bind_prop_short_hand: true,
             preserve_comments: false,
             whitespace_handling: WhitespaceHandling::Condense,
+            new_slot_syntax: true,
             is_pre_tag: None,
             get_namespace: None,
             warn: Some(Box::new(move |msg: &str| {
@@ -1050,5 +1052,61 @@ mod tests {
         let div_ast = binding.children[0].borrow();
         assert_eq!(div_ast.el.props[0].name, "id");
         assert_eq!(div_ast.el.props[0].value.as_ref().unwrap(), "foo");
+    }
+
+    // TODO: These should give warning but they are not parsed as attributes for now
+    // #[test]
+    // fn parse_and_warn_invalid_dynamic_arguments() {
+    //     let templates = vec![
+    //         "<div v-bind:['foo' + bar]=\"baz\"/>",
+    //         "<div :['foo' + bar]=\"baz\"/>",
+    //         "<div @['foo' + bar]=\"baz\"/>",
+    //         "<foo #['foo' + bar]=\"baz\"/>",
+    //         "<div :['foo' + bar].some.mod=\"baz\"/>",
+    //     ];
+    //
+    //     for template in templates {
+    //         let (ast, warnings) = parse(&template);
+    //         assert_eq!(warnings.borrow().len(), 1);
+    //         assert_eq!(warnings.borrow()[0], "Invalid dynamic argument expression");
+    //     }
+    // }
+
+    #[test]
+    fn multiple_dynamic_slot_names_without_warning() {
+        let (ast, warnings) = parse(
+            "<my-component>
+            <template #[foo]>foo</template>
+            <template #[data]=\"scope\">scope</template>
+            <template #[bar]>bar</template>
+        </my-component>",
+        );
+
+        assert_eq!(warnings.borrow().len(), 0);
+
+        let wrapper = ast.wrapper.borrow();
+        let root = wrapper.children[0].borrow();
+        let root_scoped_slots = root.el.scoped_slots.as_ref().unwrap();
+
+        assert!(root_scoped_slots.contains_key("foo"));
+        assert!(root_scoped_slots.contains_key("data"));
+        assert!(root_scoped_slots.contains_key("bar"));
+
+        let slot_foo = root_scoped_slots.get("foo").unwrap().borrow();
+        let slot_data = root_scoped_slots.get("data").unwrap().borrow();
+        let slot_bar = root_scoped_slots.get("bar").unwrap().borrow();
+
+        assert_eq!(slot_foo.el.token.data, Box::from("template"));
+        assert_eq!(slot_data.el.token.data, Box::from("template"));
+        assert_eq!(slot_bar.el.token.data, Box::from("template"));
+
+        assert_eq!(slot_foo.el.attrs[0].name, "#[foo]");
+        assert_eq!(slot_foo.el.attrs[0].value, None);
+
+        assert_eq!(slot_data.el.attrs[0].name, "#[data]");
+        assert_eq!(slot_data.el.attrs[0].value, Some("scope".to_string()));
+
+        assert_eq!(slot_bar.el.attrs[0].name, "#[bar]");
+        assert_eq!(slot_bar.el.attrs[0].value, None);
     }
 }

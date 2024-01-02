@@ -61,6 +61,7 @@ pub enum ASTElementKind {
     Text = 3,
 }
 
+#[derive(Debug)]
 pub struct AttrEntry {
     pub name: String,
     pub value: Option<String>,
@@ -74,8 +75,6 @@ pub struct ASTElement {
 
     pub expression: Option<String>,
     pub tokens: Option<Vec<String>>,
-
-    pub new_slot_syntax: bool,
 
     pub static_class: Option<String>,
     pub class_binding: Option<String>,
@@ -164,7 +163,6 @@ pub fn create_ast_element(token: Token, kind: ASTElementKind) -> ASTElement {
         slot_scope: None,
         dynamic_attrs: vec![],
         slot_target_dynamic: false,
-        new_slot_syntax: false,
         static_class: None,
         has_bindings: false,
         props: vec![],
@@ -419,14 +417,25 @@ impl ASTNode {
         }
     }
 
-    // TODO: implement a better way to check if there is attribute but it has no value
-    pub fn get_and_remove_attr_by_regex(&mut self, name: &Regex) -> Option<Box<str>> {
-        for (attr_name, attr_value) in self.el.token.attrs.as_ref().unwrap().iter() {
-            if name.is_match(attr_name) {
-                self.el.ignored.insert(attr_name.clone());
+    pub fn get_and_remove_attr_by_regex(&mut self, regex: &Regex) -> Option<AttrEntry> {
+        if let Some(attributes) = &self.el.token.attrs {
+            for (attr_name, attr_value) in attributes {
+                if regex.is_match(attr_name) {
+                    self.el.ignored.insert(attr_name.clone());
 
-                if let Some((attr_value, _attr_quote)) = attr_value {
-                    return Some(attr_value.clone());
+                    if let Some((attr_value, _attr_quote)) = attr_value {
+                        return Some(AttrEntry {
+                            name: attr_name.to_string(),
+                            value: Some(attr_value.to_string()),
+                            quote_type: *_attr_quote,
+                        });
+                    }
+
+                    return Some(AttrEntry {
+                        name: attr_name.to_string(),
+                        value: None,
+                        quote_type: QuoteType::NoValue,
+                    });
                 }
             }
         }
@@ -442,8 +451,7 @@ impl ASTNode {
         return false;
     }
 
-    // TODO: implement a better way to check if there is attribute but it has no value
-    pub fn get_raw_attr(&self, name: &str) -> Option<&Box<str>> {
+    pub fn get_raw_attr_value(&self, name: &str) -> Option<&Box<str>> {
         if let Some(ref attrs) = self.el.token.attrs {
             if let Some(attr_value) = attrs.get(name) {
                 if let Some((attr_value, _attr_quote)) = attr_value {
@@ -455,7 +463,6 @@ impl ASTNode {
         return None;
     }
 
-    // TODO: implement a better way to check if there is attribute but it has no value
     pub fn get_and_remove_attr(&mut self, name: &str, fully_remove: bool) -> Option<AttrEntry> {
         if let Some(ref mut attrs) = self.el.token.attrs {
             if let Some(attr_value) = attrs.get(name) {
@@ -526,19 +533,19 @@ impl ASTNode {
     }
 
     pub fn get_raw_binding_attr(&self, name: &'static str) -> Option<&Box<str>> {
-        let mut val = self.get_raw_attr(&(":".to_string() + name));
+        let mut val = self.get_raw_attr_value(&(":".to_string() + name));
 
         if val.is_some() {
             return val;
         }
 
-        val = self.get_raw_attr(&("v-bind:".to_string() + name));
+        val = self.get_raw_attr_value(&("v-bind:".to_string() + name));
 
         if val.is_some() {
             return val;
         }
 
-        return self.get_raw_attr(&name);
+        return self.get_raw_attr_value(&name);
     }
 
     pub fn add_if_condition(&mut self, if_condition: IfCondition) {
@@ -620,7 +627,7 @@ impl ASTNode {
             && self.el.token.attrs.is_none();
 
         self.process_ref();
-        self.process_slot_content(tree);
+        self.process_slot_content(tree, options);
         self.process_slot_outlet();
         self.process_component();
 
@@ -720,7 +727,7 @@ impl ASTNode {
         }
     }
 
-    pub fn process_slot_content(&mut self, tree: &ASTTree) {
+    pub fn process_slot_content(&mut self, tree: &ASTTree, options: &CompilerOptions) {
         let is_dev = self.is_dev;
         let mut slot_scope_entry_value: Option<String> = None;
 
@@ -779,11 +786,11 @@ impl ASTNode {
         }
 
         // 2.6 v-slot syntax
-        if self.el.new_slot_syntax {
+        if options.new_slot_syntax {
             if self.el.token.data.eq_ignore_ascii_case("template") {
                 let slot_binding = self.get_and_remove_attr_by_regex(&SLOT_RE);
 
-                if let Some(slot_binding_val) = slot_binding {
+                if let Some(slot_binding_attr) = slot_binding {
                     if is_dev {
                         let slot_target = self.el.slot_target.clone();
                         let slot_scope = self.el.slot_scope.clone();
@@ -801,19 +808,19 @@ impl ASTNode {
                             }
                         }
                     }
-                    let slot_name = get_slot_name(&*slot_binding_val);
+                    let slot_name = get_slot_name(&slot_binding_attr);
                     self.el.slot_target = Some(slot_name.name);
                     self.el.slot_target_dynamic = slot_name.dynamic;
-                    self.el.slot_scope = Some(if slot_binding_val.is_empty() {
-                        EMPTY_SLOT_SCOPE_TOKEN.to_string()
+                    self.el.slot_scope = Some(if slot_binding_attr.value.is_some() {
+                        slot_binding_attr.value.unwrap()
                     } else {
-                        slot_binding_val.to_string()
+                        EMPTY_SLOT_SCOPE_TOKEN.to_string()
                     });
                 }
             } else {
                 let slot_binding = self.get_and_remove_attr_by_regex(&SLOT_RE);
 
-                if let Some(slot_binding_val) = slot_binding {
+                if let Some(slot_binding_attr) = slot_binding {
                     if is_dev {
                         if !self.is_maybe_component() {
                             self.warn
@@ -833,7 +840,7 @@ impl ASTNode {
                         self.el.scoped_slots.as_mut().unwrap()
                     };
 
-                    let slot_name = get_slot_name(&*slot_binding_val);
+                    let slot_name = get_slot_name(&slot_binding_attr);
                     let slot_container = tree.create(
                         create_ast_element(
                             Token {
@@ -870,11 +877,12 @@ impl ASTNode {
                             }
                         })
                         .collect::<Vec<_>>();
-                    slot_container_node.el.slot_scope = Some(if slot_binding_val.is_empty() {
-                        EMPTY_SLOT_SCOPE_TOKEN.to_string()
-                    } else {
-                        slot_binding_val.to_string()
-                    });
+                    slot_container_node.el.slot_scope =
+                        Some(if slot_binding_attr.value.is_some() {
+                            slot_binding_attr.value.unwrap().to_string()
+                        } else {
+                            EMPTY_SLOT_SCOPE_TOKEN.to_string()
+                        });
                     drop(slot_container_node);
                     slots.insert(slot_name.name.to_string(), slot_container);
 
@@ -894,18 +902,29 @@ impl ASTNode {
         quote_type: QuoteType,
         is_dynamic: bool,
     ) {
-        if self.el.ignored.contains(key) {
-            return;
-        }
+        // if self.el.ignored.contains(key) {
+        //     return;
+        // }
 
         self.el.plain = false;
 
         let item = AttrItem {
             name: key.to_string(),
-            value,
+            value: value.clone(),
             dynamic: is_dynamic,
             quote_type,
         };
+
+        if value.is_some() {
+            self.el
+                .token
+                .attrs
+                .get_or_insert(UniCaseBTreeMap::new())
+                .insert(
+                    key.to_string(),
+                    Some((value.unwrap().into_boxed_str(), quote_type)),
+                );
+        }
 
         if is_dynamic {
             self.el.dynamic_attrs.push(item)
@@ -1154,7 +1173,9 @@ Consider using an array of objects and use v-model on an object property instead
                 let attr_value: Box<str>;
                 if let Some(val) = value {
                     attr_value = val.0;
+                    self.insert_into_attrs(&name_str, Some(attr_value.to_string()), val.1, false);
                 } else {
+                    self.insert_into_attrs(&name_str, None, QuoteType::NoValue, false);
                     return;
                 }
 
@@ -1322,15 +1343,18 @@ pub struct SlotName {
     dynamic: bool,
 }
 
-pub fn get_slot_name(binding: &str) -> SlotName {
-    let mut name = SLOT_RE.replace_all(binding, "").to_string();
+pub fn get_slot_name(binding: &AttrEntry) -> SlotName {
+    let mut name = SLOT_RE.replace_all(&binding.name, "").to_string();
 
     if name.is_empty() {
-        if !binding.starts_with('#') {
+        if !&binding.name.starts_with('#') {
             name = "default".to_string();
         } else {
             // TODO: warn in debug only
-            println!("v-slot shorthand syntax requires a slot name: {}", binding);
+            println!(
+                "v-slot shorthand syntax requires a slot name: {:?}",
+                binding
+            );
         }
     }
 

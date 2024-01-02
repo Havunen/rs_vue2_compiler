@@ -66,6 +66,7 @@ pub struct CompilerOptions {
     pub v_bind_prop_short_hand: bool,
     pub preserve_comments: bool,
     pub whitespace_handling: WhitespaceHandling,
+    pub new_slot_syntax: bool,
 
     pub is_pre_tag: Option<fn(tag: &str) -> bool>,
     pub get_namespace: Option<fn(tag: &str) -> Option<&'static str>>,
@@ -324,9 +325,12 @@ impl<'a> VueParser<'a> {
                                     // scoped slot
                                     // keep it in the children list so that v-else(-if) conditions can
                                     // find it as the prev node.
+                                    let scoped_slots = current_parent
+                                        .el
+                                        .scoped_slots
+                                        .get_or_insert(UniCaseBTreeMap::new());
+
                                     let slot_target = node.el.slot_target.clone();
-                                    let scoped_slots =
-                                        node.el.scoped_slots.get_or_insert(UniCaseBTreeMap::new());
                                     let name = if let Some(slot_target) = slot_target {
                                         slot_target
                                     } else {
