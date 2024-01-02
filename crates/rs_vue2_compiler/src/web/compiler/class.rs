@@ -59,7 +59,8 @@ impl ModuleApi for ClassModule {
     fn pre_transform_node(
         &self,
         _node: &mut ASTNode,
-        _tree: &ASTTree,
+        _tree: &mut ASTTree,
+        _options: &CompilerOptions,
     ) -> Option<Rc<RefCell<ASTNode>>> {
         None
     }

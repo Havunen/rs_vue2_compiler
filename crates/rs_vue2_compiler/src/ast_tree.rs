@@ -6,8 +6,8 @@ use crate::util::{get_attribute, modifier_regex_replace_all_matches, prepend_mod
 use crate::warn_logger::WarnLogger;
 use crate::web::attrs::must_use_prop;
 use crate::{
-    ARG_RE, BIND_RE, DIR_RE, DYNAMIC_ARG_RE, FOR_ALIAS_RE, FOR_ITERATOR_RE, MODIFIER_RE, ON_RE,
-    PROP_BIND_RE, SLOT_RE, STRIP_PARENS_RE,
+    CompilerOptions, ARG_RE, BIND_RE, DIR_RE, DIR_RE_VBIND_SHORT_HAND, DYNAMIC_ARG_RE,
+    FOR_ALIAS_RE, FOR_ITERATOR_RE, MODIFIER_RE, ON_RE, PROP_BIND_RE, SLOT_RE, STRIP_PARENS_RE,
 };
 use regex::Regex;
 use rs_html_parser_tokenizer_tokens::QuoteType;
@@ -610,7 +610,7 @@ impl ASTNode {
         }
     }
 
-    pub fn process_element(&mut self, tree: &ASTTree) {
+    pub fn process_element(&mut self, tree: &ASTTree, options: &CompilerOptions) {
         self.process_key();
 
         // determine whether this is a plain element after
@@ -624,13 +624,13 @@ impl ASTNode {
         self.process_slot_outlet();
         self.process_component();
 
-        /* TODO: finish this
-          for (let i = 0; i < transforms.length; i++) {
-           element = transforms[i](element, options) || element
-         }
-        */
+        if let Some(registered_modules) = &options.modules {
+            for module in registered_modules.iter() {
+                module.transform_node(self, &options);
+            }
+        }
 
-        self.process_attrs();
+        self.process_attrs(options);
     }
 
     // handle <slot/> outlets
@@ -1001,7 +1001,7 @@ Consider using an array of objects and use v-model on an object property instead
         self.el.component.is_some() || self.has_raw_attr("is") || self.has_raw_attr("v-bind:is")
         // !(self.el.token.attrs.attrsMap.is ? isReservedTag(el.attrsMap.is) : isReservedTag(el.tag))
     }
-    pub fn process_attrs(&mut self) {
+    pub fn process_attrs(&mut self, options: &CompilerOptions) {
         if self.el.token.attrs.is_none() {
             return;
         }
@@ -1009,26 +1009,40 @@ Consider using an array of objects and use v-model on an object property instead
         // TODO: Get rid off this clone
         let attrs = self.el.token.attrs.clone().unwrap();
         for (orig_name, orig_val) in attrs.iter().rev() {
-            self.process_attr(&orig_name, &orig_val);
+            self.process_attr(&orig_name, &orig_val, options);
         }
     }
 
-    pub fn process_attr(&mut self, name: &str, value: &Option<(Box<str>, QuoteType)>) {
+    pub fn process_attr(
+        &mut self,
+        name: &str,
+        value: &Option<(Box<str>, QuoteType)>,
+        options: &CompilerOptions,
+    ) {
         let mut name_str = name.to_string();
         let raw_name = name_str.clone();
         let mut value = value.clone();
 
-        if DIR_RE.is_match(&name_str) {
+        let dir_regex: &'static Regex = if options.v_bind_prop_short_hand {
+            &DIR_RE_VBIND_SHORT_HAND
+        } else {
+            &DIR_RE
+        };
+
+        if dir_regex.is_match(&name_str) {
             // mark element as dynamic
             self.el.has_bindings = true;
 
             // modifiers
 
-            let mut modifiers_option = parse_modifiers(DIR_RE.replace_all(&name_str, "").as_ref());
+            let mut modifiers_option =
+                parse_modifiers(dir_regex.replace_all(&name_str, "").as_ref());
 
             // support .foo shorthand syntax for the .prop modifier
-            if PROP_BIND_RE.is_match(&name_str) && modifiers_option.is_some() {
-                modifiers_option.as_mut().unwrap().insert("prop");
+            if PROP_BIND_RE.is_match(&name_str) {
+                modifiers_option
+                    .get_or_insert(UniCaseBTreeSet::new())
+                    .insert("prop");
                 name_str = ".".to_string() + &*modifier_regex_replace_all_matches(&name_str[1..]);
             } else if modifiers_option.is_some() {
                 name_str = modifier_regex_replace_all_matches(&name_str);
@@ -1145,7 +1159,7 @@ Consider using an array of objects and use v-model on an object property instead
                 }
 
                 // normal directives
-                name_str = DIR_RE.replace_all(&name_str, "").to_string();
+                name_str = dir_regex.replace_all(&name_str, "").to_string();
                 // parse arg
                 let name_clone = name_str.to_string();
                 let arg_match = ARG_RE.captures(&name_clone);

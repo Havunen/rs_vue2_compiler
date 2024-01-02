@@ -39,7 +39,8 @@ impl ModuleApi for ModelModule {
     fn pre_transform_node(
         &self,
         node: &mut ASTNode,
-        tree: &ASTTree,
+        tree: &mut ASTTree,
+        options: &CompilerOptions,
     ) -> Option<Rc<RefCell<ASTNode>>> {
         if node.el.token.data.as_ref() == "input" {
             if let Some(map) = &node.el.token.attrs {
@@ -81,6 +82,7 @@ impl ModuleApi for ModelModule {
                     let branch0_rc = node_copy(node, tree);
                     {
                         let mut branch0 = branch0_rc.borrow_mut();
+                        tree.set(branch0.id, branch0_rc.clone());
                         branch0.process_for();
                         branch0
                             .el
@@ -91,7 +93,7 @@ impl ModuleApi for ModelModule {
                                 "type",
                                 Some(("checkbox".to_string().into_boxed_str(), QuoteType::Double)),
                             );
-                        branch0.process_element(tree);
+                        branch0.process_element(tree, options);
                         branch0.el.processed = true; // prevent it from double-processed
                         branch0.el.if_val = Some(format!(
                             "({})==='checkbox'{}",
@@ -106,6 +108,7 @@ impl ModuleApi for ModelModule {
                         // 2. add radio else-if condition
                         let branch1_rc = node_copy(node, tree);
                         let mut branch1 = branch1_rc.borrow_mut();
+                        tree.set(branch1.id, branch1_rc.clone());
                         branch1.get_and_remove_attr("v-for", true);
                         branch1
                             .el
@@ -116,7 +119,7 @@ impl ModuleApi for ModelModule {
                                 "type",
                                 Some(("radio".to_string().into_boxed_str(), QuoteType::Double)),
                             );
-                        branch1.process_element(tree);
+                        branch1.process_element(tree, options);
                         branch0.add_if_condition(IfCondition {
                             exp: Some(format!(
                                 "({})==='radio'{}",
@@ -128,6 +131,7 @@ impl ModuleApi for ModelModule {
                         // 3. other
                         let branch2_rc = node_copy(node, tree);
                         let mut branch2 = branch2_rc.borrow_mut();
+                        tree.set(branch2.id, branch2_rc.clone());
                         branch2.get_and_remove_attr("v-for", true);
                         branch2
                             .el
@@ -141,7 +145,7 @@ impl ModuleApi for ModelModule {
                                     QuoteType::Single,
                                 )),
                             );
-                        branch2.process_element(tree);
+                        branch2.process_element(tree, options);
                         branch0.add_if_condition(IfCondition {
                             exp: if_condition_val.clone(),
                             block_id: branch2.id,

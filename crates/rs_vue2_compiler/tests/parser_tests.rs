@@ -1,6 +1,9 @@
 #[cfg(test)]
 mod tests {
     use rs_vue2_compiler::ast_tree::ASTTree;
+    use rs_vue2_compiler::web::compiler::class::ClassModule;
+    use rs_vue2_compiler::web::compiler::model::ModelModule;
+    use rs_vue2_compiler::web::compiler::style::StyleModule;
     use rs_vue2_compiler::{CompilerOptions, VueParser, WhitespaceHandling};
     use std::cell::RefCell;
     use std::rc::Rc;
@@ -8,10 +11,10 @@ mod tests {
     fn parse(template: &str) -> (ASTTree, Rc<RefCell<Vec<String>>>) {
         let warnings = Rc::new(RefCell::new(Vec::new()));
         let warnings_clone = Rc::clone(&warnings);
-
-        let mut parser = VueParser::new(CompilerOptions {
+        let options = CompilerOptions {
             dev: true,
             is_ssr: false,
+            v_bind_prop_short_hand: false,
             preserve_comments: false,
             whitespace_handling: WhitespaceHandling::Condense,
             is_pre_tag: None,
@@ -20,8 +23,13 @@ mod tests {
                 warnings_clone.borrow_mut().push(msg.to_string());
             })),
             delimiters: None,
-            modules: vec![],
-        });
+            modules: Some(vec![
+                Box::new(ClassModule {}),
+                Box::new(ModelModule {}),
+                Box::new(StyleModule {}),
+            ]),
+        };
+        let mut parser = VueParser::new(&options);
 
         (parser.parse(template), warnings)
     }
@@ -941,32 +949,29 @@ mod tests {
     #[test]
     fn class_binding() {
         // static
-        let (ast1, _warnings) = parse("<p class=\"class1\">hello world</p>");
-        let binding = ast1.wrapper.borrow();
-        let p_ast1 = binding.children[0].borrow();
-        assert_eq!(p_ast1.el.attrs[0].name, "class");
-        assert_eq!(p_ast1.el.attrs[0].value.as_ref().unwrap(), "class1");
+        let (ast1, _warnings1) = parse("<p class=\"class1\">hello world</p>");
+        let wrapper1 = ast1.wrapper.borrow();
+        let root1 = wrapper1.children[0].borrow();
+        assert_eq!(root1.el.static_class.as_ref().unwrap(), "class1");
 
         // dynamic
-        let (ast2, _warnings) = parse("<p :class=\"class1\">hello world</p>");
-        let binding2 = ast2.wrapper.borrow();
-        let p_ast2 = binding2.children[0].borrow();
-        assert_eq!(p_ast2.el.props[0].name, "class");
-        assert_eq!(p_ast2.el.props[0].value.as_ref().unwrap(), "class1");
+        let (ast2, _warnings2) = parse("<p :class=\"class1\">hello world</p>");
+        let wrapper2 = ast2.wrapper.borrow();
+        let root2 = wrapper2.children[0].borrow();
+        assert_eq!(root2.el.class_binding.as_ref().unwrap(), "class1");
 
         // interpolation warning
-        let (_ast, warnings) = parse("<p class=\"{{error}}\">hello world</p>");
-        assert_eq!(warnings.borrow().len(), 1);
-        assert_eq!(warnings.borrow()[0], "Interpolation inside attributes has been removed. Use v-bind or the colon shorthand instead. For example, instead of <div class=\"{{ val }}\">, use <div :class=\"val\">.");
+        let (_ast3, warnings3) = parse("<p class=\"{{error}}\">hello world</p>");
+        assert_eq!(warnings3.borrow().len(), 1);
+        assert_eq!(warnings3.borrow()[0], "class=\"{{error}}\": Interpolation inside attributes has been removed. Use v-bind or the colon shorthand instead. For example, instead of <div class=\"{ val }\">, use <div :class=\"val\">.");
     }
 
     #[test]
     fn style_binding() {
         let (ast, _warnings) = parse("<p :style=\"error\">hello world</p>");
-        let binding = ast.wrapper.borrow();
-        let p_ast = binding.children[0].borrow();
-        assert_eq!(p_ast.el.props[0].name, "style");
-        assert_eq!(p_ast.el.props[0].value.as_ref().unwrap(), "error");
+        let wrapper = ast.wrapper.borrow();
+        let root = wrapper.children[0].borrow();
+        assert_eq!(root.el.style_binding.as_ref().unwrap(), "error");
     }
 
     #[test]
@@ -992,9 +997,37 @@ mod tests {
         );
     }
 
+    fn parse_v_bind_on(template: &str) -> (ASTTree, Rc<RefCell<Vec<String>>>) {
+        let warnings = Rc::new(RefCell::new(Vec::new()));
+        let warnings_clone = Rc::clone(&warnings);
+        let options = CompilerOptions {
+            dev: true,
+            is_ssr: false,
+            v_bind_prop_short_hand: true,
+            preserve_comments: false,
+            whitespace_handling: WhitespaceHandling::Condense,
+            is_pre_tag: None,
+            get_namespace: None,
+            warn: Some(Box::new(move |msg: &str| {
+                warnings_clone.borrow_mut().push(msg.to_string());
+            })),
+            delimiters: None,
+            modules: Some(vec![
+                Box::new(ClassModule {}),
+                Box::new(ModelModule {}),
+                Box::new(StyleModule {}),
+            ]),
+        };
+        let mut parser = VueParser::new(&options);
+
+        (parser.parse(template), warnings)
+    }
+
+    // v_bind_prop_short_hand == true
+
     #[test]
     fn v_bind_prop_shorthand_syntax() {
-        let (ast, _warnings) = parse("<div .id=\"foo\"></div>");
+        let (ast, _warnings) = parse_v_bind_on("<div .id=\"foo\"></div>");
         let binding = ast.wrapper.borrow();
         let div_ast = binding.children[0].borrow();
         assert_eq!(div_ast.el.props[0].name, "id");
@@ -1003,7 +1036,7 @@ mod tests {
 
     #[test]
     fn v_bind_prop_shorthand_syntax_with_modifiers() {
-        let (ast, _warnings) = parse("<div .id.mod=\"foo\"></div>");
+        let (ast, _warnings) = parse_v_bind_on("<div .id.mod=\"foo\"></div>");
         let binding = ast.wrapper.borrow();
         let div_ast = binding.children[0].borrow();
         assert_eq!(div_ast.el.props[0].name, "id");
@@ -1012,7 +1045,7 @@ mod tests {
 
     #[test]
     fn v_bind_prop_shorthand_dynamic_argument() {
-        let (ast, _warnings) = parse("<div .[id]=\"foo\"></div>");
+        let (ast, _warnings) = parse_v_bind_on("<div .[id]=\"foo\"></div>");
         let binding = ast.wrapper.borrow();
         let div_ast = binding.children[0].borrow();
         assert_eq!(div_ast.el.props[0].name, "id");

@@ -6,7 +6,7 @@ mod text_parser;
 mod uni_codes;
 mod util;
 mod warn_logger;
-mod web;
+pub mod web;
 
 extern crate lazy_static;
 
@@ -43,6 +43,7 @@ lazy_static! {
     static ref LINE_BREAK_RE: Regex = Regex::new(r"[\r\n]").unwrap();
     static ref WHITESPACE_RE: Regex = Regex::new(r"[ \f\t\r\n]+").unwrap();
     static ref DIR_RE: Regex = Regex::new(r"^(v-|@|:|#)").unwrap();
+    static ref DIR_RE_VBIND_SHORT_HAND: Regex = Regex::new(r"^v-|^@|^:|^\.|^#").unwrap();
     static ref ON_RE: Regex = Regex::new(r"^@|^v-on:").unwrap();
 }
 
@@ -62,6 +63,7 @@ pub struct CompilerOptions {
     pub dev: bool,
     pub is_ssr: bool,
 
+    pub v_bind_prop_short_hand: bool,
     pub preserve_comments: bool,
     pub whitespace_handling: WhitespaceHandling,
 
@@ -70,7 +72,7 @@ pub struct CompilerOptions {
     pub warn: Option<Box<dyn WarnLogger>>,
     pub delimiters: Option<(String, String)>,
 
-    pub modules: Vec<Box<dyn ModuleApi>>,
+    pub modules: Option<Vec<Box<dyn ModuleApi>>>,
 }
 
 pub trait ModuleApi {
@@ -80,7 +82,8 @@ pub trait ModuleApi {
     fn pre_transform_node(
         &self,
         node: &mut ASTNode,
-        tree: &ASTTree,
+        tree: &mut ASTTree,
+        options: &CompilerOptions,
     ) -> Option<Rc<RefCell<ASTNode>>>;
 }
 
@@ -104,7 +107,7 @@ fn is_forbidden_tag(el: &Token) -> bool {
     }
 }
 
-pub struct VueParser {
+pub struct VueParser<'a> {
     dev: bool,
     warn: Box<dyn WarnLogger>,
 
@@ -121,6 +124,7 @@ pub struct VueParser {
     get_namespace: fn(tag: &str) -> Option<&'static str>,
 
     active_text: Option<String>,
+    options: &'a CompilerOptions,
 }
 
 const PARSER_OPTIONS: ParserOptions = ParserOptions {
@@ -131,9 +135,10 @@ const PARSER_OPTIONS: ParserOptions = ParserOptions {
     },
 };
 
-impl VueParser {
-    pub fn new(options: CompilerOptions) -> VueParser {
+impl<'a> VueParser<'a> {
+    pub fn new(options: &'a CompilerOptions) -> VueParser<'a> {
         VueParser {
+            options: &options,
             dev: options.dev,
             is_pre_tag: options.is_pre_tag.unwrap_or(|_| false),
             is_ssr: options.is_ssr,
@@ -144,7 +149,7 @@ impl VueParser {
             whitespace_handling: options.whitespace_handling,
             preserve_comments: false,
             active_text: None,
-            warn: options.warn.unwrap_or(Box::new(print_line)),
+            warn: options.warn.clone().unwrap_or_else(|| Box::new(print_line)),
         }
     }
 
@@ -187,7 +192,7 @@ impl VueParser {
                 TokenKind::OpenTag => {
                     self.end_text_node(&mut root_tree, current_parent_id);
 
-                    let node_rc = root_tree.create(
+                    let mut node_rc = root_tree.create(
                         create_ast_element(token, ASTElementKind::Element),
                         current_parent_id,
                         is_dev,
@@ -235,7 +240,18 @@ impl VueParser {
                         }
                     }
 
-                    // TODO Apply pre-transforms
+                    if let Some(registered_modules) = &self.options.modules {
+                        for module in registered_modules {
+                            let possibly_new_node =
+                                module.pre_transform_node(&mut node, &mut root_tree, self.options);
+
+                            if let Some(new_node) = possibly_new_node {
+                                drop(node);
+                                node_rc = new_node;
+                                node = node_rc.borrow_mut();
+                            }
+                        }
+                    }
 
                     if !self.in_v_pre {
                         node.process_pre();
@@ -269,7 +285,7 @@ impl VueParser {
                         // trim white space ??
 
                         if !self.in_v_pre && !node.el.processed {
-                            node.process_element(&root_tree);
+                            node.process_element(&root_tree, &self.options);
                         }
                         // tree management
                         if stack.is_empty() && node.id != 1 {
