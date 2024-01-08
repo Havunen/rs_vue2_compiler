@@ -15,7 +15,7 @@ use crate::ast_tree::{
 };
 use crate::text_parser::parse_text;
 use crate::uni_codes::{UC_TYPE, UC_V_FOR};
-use crate::util::{get_attribute, has_attribute};
+use crate::util::{get_attribute_value, has_attribute};
 use crate::warn_logger::WarnLogger;
 use crate::web::element::get_namespace;
 use lazy_static::lazy_static;
@@ -96,10 +96,12 @@ fn is_forbidden_tag(el: &Token) -> bool {
     match &*el.data {
         "style" => true,
         "script" => {
-            let attr_value = get_attribute(el, &UC_TYPE);
+            let attr_entry = get_attribute_value(el, &UC_TYPE);
 
-            if let Some((val, _quote)) = attr_value {
-                return &**val == "text/javascript";
+            if let Some(some_attr_entry) = attr_entry {
+                if let Some((val, _quotes)) = some_attr_entry {
+                    return val.as_ref() == "text/javascript";
+                }
             }
 
             return false;

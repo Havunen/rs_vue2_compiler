@@ -14,12 +14,16 @@ pub fn has_attribute(token: &Token, str: &str) -> bool {
     false
 }
 
-pub fn get_attribute<'a>(token: &'a Token, str: &str) -> &'a Option<(Box<str>, QuoteType)> {
+pub fn get_attribute_value(token: &Token, str: &str) -> Option<Option<(Box<str>, QuoteType)>> {
     if let Some(attrs) = &token.attrs {
-        return attrs.get(str).unwrap_or_else(|| &None);
+        let attr_entry_opt = attrs.get(str);
+
+        if let Some(attr_entry) = attr_entry_opt {
+            return Some(attr_entry.clone());
+        }
     }
 
-    &None
+    None
 }
 
 pub fn prepend_modifier_marker(symbol: char, name: &str, dynamic: bool) -> String {

@@ -1109,4 +1109,16 @@ mod tests {
         assert_eq!(slot_bar.el.attrs[0].name, "#[bar]");
         assert_eq!(slot_bar.el.attrs[0].value, None);
     }
+
+    #[test]
+    fn special_case_static_attribute_that_must_be_props() {
+        let (ast, _warnings) = parse("<video muted></video>");
+
+        let wrapper = ast.wrapper.borrow();
+        let root = wrapper.children[0].borrow();
+        assert_eq!(root.el.attrs[0].name, "muted");
+        assert_eq!(root.el.attrs[0].value, None);
+        assert_eq!(root.el.props[0].name, "muted");
+        assert_eq!(root.el.props[0].value, Some("true".to_string()));
+    }
 }

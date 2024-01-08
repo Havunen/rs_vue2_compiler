@@ -6,14 +6,14 @@ fn accept_value(tag: &str) -> bool {
 
 pub fn must_use_prop(
     tag: &str,
-    type_attribute: &Option<(Box<str>, QuoteType)>,
+    type_attribute: &Option<Option<(Box<str>, QuoteType)>>,
     name: &str,
 ) -> bool {
     if name == "value"
         && accept_value(tag)
         && type_attribute
             .as_ref()
-            .is_some_and(|x| x.0.as_ref() != "button")
+            .is_some_and(|x1| x1.as_ref().is_some_and(|x2| x2.0.as_ref() != "button"))
     {
         return true;
     }

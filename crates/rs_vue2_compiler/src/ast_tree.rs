@@ -2,7 +2,9 @@ use crate::directives_model::gen_assignment_code;
 use crate::filter_parser::parse_filters;
 use crate::helpers::{is_some_and_ref, to_camel, to_hyphen_case};
 use crate::uni_codes::{UC_KEY, UC_V_ELSE, UC_V_ELSE_IF, UC_V_FOR, UC_V_IF, UC_V_ONCE, UC_V_PRE};
-use crate::util::{get_attribute, modifier_regex_replace_all_matches, prepend_modifier_marker};
+use crate::util::{
+    get_attribute_value, modifier_regex_replace_all_matches, prepend_modifier_marker,
+};
 use crate::warn_logger::WarnLogger;
 use crate::web::attrs::must_use_prop;
 use crate::{
@@ -1145,7 +1147,7 @@ Consider using an array of objects and use v-model on an object property instead
                     || (self.el.component.is_none()
                         && must_use_prop(
                             &self.el.token.data,
-                            get_attribute(&self.el.token, "type"),
+                            &get_attribute_value(&self.el.token, "type"),
                             &name_str,
                         ))
                 {
@@ -1225,13 +1227,17 @@ Consider using an array of objects and use v-model on an object property instead
             self.insert_into_attrs(&name_str, attr_value.0, attr_value.1, false);
             // #6887 firefox doesn't update muted state if set via attribute
             // even immediately after element creation
-            // if (
-            //     !self.el.component &&
-            //         name == "muted" &&
-            //         platform_must_use_prop(self.el.tag, self.el.attrs_map.get("type"), &name)
-            // ) {
-            //     add_prop(self, &name, "true", attrs.get(name).unwrap(), false);
-            // }
+            if self.el.component.is_none() && name == "muted" {
+                let attr_entry_opt = get_attribute_value(&self.el.token, "type");
+                if must_use_prop(&self.el.token.data, &attr_entry_opt, &name) {
+                    self.insert_into_props(
+                        &name_str,
+                        Some("true".to_string()),
+                        QuoteType::Double,
+                        false,
+                    );
+                }
+            }
         }
     }
 
