@@ -43,7 +43,7 @@ pub struct Handler {
 pub struct Directive {
     pub name: String,
     pub raw_name: String,
-    pub value: String,
+    pub value: Option<String>,
     pub arg: Option<String>,
     pub is_dynamic_arg: bool,
     pub modifiers: UniCaseBTreeSet,
@@ -1172,13 +1172,13 @@ Consider using an array of objects and use v-model on an object property instead
                 }
                 self.add_handler(&name_str, &attr_value, modifiers_option, false, is_dynamic);
             } else {
-                let attr_value: Box<str>;
+                let attr_value: Option<String>;
                 if let Some(val) = value {
-                    attr_value = val.0;
-                    self.insert_into_attrs(&name_str, Some(attr_value.to_string()), val.1, false);
+                    attr_value = Some(val.0.to_string());
+                    self.insert_into_attrs(&name_str, Some(attr_value.clone().unwrap().to_string()), val.1, false);
                 } else {
+                    attr_value = None;
                     self.insert_into_attrs(&name_str, None, QuoteType::NoValue, false);
-                    return;
                 }
 
                 // normal directives
@@ -1198,13 +1198,13 @@ Consider using an array of objects and use v-model on an object property instead
                 self.add_directive(
                     &name_str,
                     &raw_name,
-                    &attr_value,
+                    attr_value.clone(),
                     arg,
                     is_dynamic,
                     modifiers_option,
                 );
                 if self.is_dev && name_str.eq_ignore_ascii_case("model") {
-                    self.check_for_alias_model(&attr_value);
+                    self.check_for_alias_model(attr_value.clone().as_ref().unwrap_or(&String::new()));
                 }
             }
         } else {
@@ -1309,7 +1309,7 @@ Consider using an array of objects and use v-model on an object property instead
         &mut self,
         name: &str,
         raw_name: &str,
-        value: &str,
+        value: Option<String>,
         arg: Option<&str>,
         is_dynamic_arg: bool,
         modifiers: Option<UniCaseBTreeSet>,
@@ -1319,7 +1319,7 @@ Consider using an array of objects and use v-model on an object property instead
         let directive = Directive {
             name: name.to_string(),
             raw_name: raw_name.to_string(),
-            value: value.to_string(),
+            value,
             arg: arg.map(|arg| arg.to_string()),
             is_dynamic_arg,
             modifiers,

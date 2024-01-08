@@ -1121,4 +1121,38 @@ mod tests {
         assert_eq!(root.el.props[0].name, "muted");
         assert_eq!(root.el.props[0].value, Some("true".to_string()));
     }
+
+    #[test]
+    fn attribute_with_v_on() {
+        let (ast, _warnings) = parse("<input type=\"text\" name=\"field1\" :value=\"msg\" @input=\"onInput\">");
+
+        let wrapper = ast.wrapper.borrow();
+        let root = wrapper.children[0].borrow();
+        let input_event = &root.el.events.as_ref().unwrap().get("input").unwrap()[0].value;
+        assert_eq!(input_event, "onInput");
+    }
+
+    #[test]
+    fn attribute_with_directive() {
+        let (ast, _warnings) = parse("<input type=\"text\" name=\"field1\" :value=\"msg\" v-validate:field1=\"required\">");
+
+        let wrapper = ast.wrapper.borrow();
+        let root = wrapper.children[0].borrow();
+        let directive = &root.el.directives.as_ref().unwrap()[0];
+        assert_eq!(&directive.name, "validate");
+        assert_eq!(&directive.value, &Some("required".to_string()));
+        assert_eq!(&directive.arg, &Some("field1".to_string()));
+    }
+
+    #[test]
+    fn attribute_with_modified_directive() {
+        let (ast, _warnings) = parse("<input type=\"text\" name=\"field1\" :value=\"msg\" v-validate.on.off>");
+
+        let wrapper = ast.wrapper.borrow();
+        let root = wrapper.children[0].borrow();
+        let directive = &root.el.directives.as_ref().unwrap()[0];
+        assert_eq!(directive.name, "validate");
+        assert!(directive.modifiers.contains("on"));
+        assert!(directive.modifiers.contains("off"));
+    }
 }
