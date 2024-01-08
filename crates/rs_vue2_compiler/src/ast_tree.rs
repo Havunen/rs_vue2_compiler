@@ -1,6 +1,7 @@
 use crate::directives_model::gen_assignment_code;
 use crate::filter_parser::parse_filters;
 use crate::helpers::{is_some_and_ref, to_camel, to_hyphen_case};
+use crate::text_parser::parse_text;
 use crate::uni_codes::{UC_KEY, UC_V_ELSE, UC_V_ELSE_IF, UC_V_FOR, UC_V_IF, UC_V_ONCE, UC_V_PRE};
 use crate::util::{
     get_attribute_value, modifier_regex_replace_all_matches, prepend_modifier_marker,
@@ -1175,7 +1176,12 @@ Consider using an array of objects and use v-model on an object property instead
                 let attr_value: Option<String>;
                 if let Some(val) = value {
                     attr_value = Some(val.0.to_string());
-                    self.insert_into_attrs(&name_str, Some(attr_value.clone().unwrap().to_string()), val.1, false);
+                    self.insert_into_attrs(
+                        &name_str,
+                        Some(attr_value.clone().unwrap().to_string()),
+                        val.1,
+                        false,
+                    );
                 } else {
                     attr_value = None;
                     self.insert_into_attrs(&name_str, None, QuoteType::NoValue, false);
@@ -1204,11 +1210,13 @@ Consider using an array of objects and use v-model on an object property instead
                     modifiers_option,
                 );
                 if self.is_dev && name_str.eq_ignore_ascii_case("model") {
-                    self.check_for_alias_model(attr_value.clone().as_ref().unwrap_or(&String::new()));
+                    self.check_for_alias_model(
+                        attr_value.clone().as_ref().unwrap_or(&String::new()),
+                    );
                 }
             }
         } else {
-            let attr_value = if let Some(val) = value {
+            let attr_entry_opt: (Option<String>, QuoteType) = if let Some(val) = value {
                 (Some(val.0.to_string()), val.1)
             } else {
                 (None, QuoteType::NoValue)
@@ -1216,15 +1224,16 @@ Consider using an array of objects and use v-model on an object property instead
 
             // literal attribute
             if self.is_dev {
-                // TODO: Finish validation
-                // let res = parse_text(&value, delimiters);
-                // if let Some(res) = res {
-                //     warn(
-                //         format!("{}=\"{}\": Interpolation inside attributes has been removed. Use v-bind or the colon shorthand instead. For example, instead of <div id=\"{{ val }}\">, use <div :id=\"val\">.", name, value)
-                //     );
-                // }
+                if let Some(attr_val) = &attr_entry_opt.0 {
+                    let res = parse_text(&attr_val, &options.delimiters);
+                    if res.is_some() {
+                        self.warn.call(
+                            &format!("{}=\"{}\": Interpolation inside attributes has been removed. Use v-bind or the colon shorthand instead. For example, instead of <div id=\"{{ val }}\">, use <div :id=\"val\">.", &name, &attr_val)
+                        );
+                    }
+                }
             }
-            self.insert_into_attrs(&name_str, attr_value.0, attr_value.1, false);
+            self.insert_into_attrs(&name_str, attr_entry_opt.0, attr_entry_opt.1, false);
             // #6887 firefox doesn't update muted state if set via attribute
             // even immediately after element creation
             if self.el.component.is_none() && name == "muted" {

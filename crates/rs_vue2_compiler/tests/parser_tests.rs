@@ -963,7 +963,7 @@ mod tests {
 
         // interpolation warning
         let (_ast3, warnings3) = parse("<p class=\"{{error}}\">hello world</p>");
-        assert_eq!(warnings3.borrow().len(), 1);
+        assert_eq!(warnings3.borrow().len(), 2);
         assert_eq!(warnings3.borrow()[0], "class=\"{{error}}\": Interpolation inside attributes has been removed. Use v-bind or the colon shorthand instead. For example, instead of <div class=\"{ val }\">, use <div :class=\"val\">.");
     }
 
@@ -1124,7 +1124,8 @@ mod tests {
 
     #[test]
     fn attribute_with_v_on() {
-        let (ast, _warnings) = parse("<input type=\"text\" name=\"field1\" :value=\"msg\" @input=\"onInput\">");
+        let (ast, _warnings) =
+            parse("<input type=\"text\" name=\"field1\" :value=\"msg\" @input=\"onInput\">");
 
         let wrapper = ast.wrapper.borrow();
         let root = wrapper.children[0].borrow();
@@ -1134,7 +1135,9 @@ mod tests {
 
     #[test]
     fn attribute_with_directive() {
-        let (ast, _warnings) = parse("<input type=\"text\" name=\"field1\" :value=\"msg\" v-validate:field1=\"required\">");
+        let (ast, _warnings) = parse(
+            "<input type=\"text\" name=\"field1\" :value=\"msg\" v-validate:field1=\"required\">",
+        );
 
         let wrapper = ast.wrapper.borrow();
         let root = wrapper.children[0].borrow();
@@ -1146,7 +1149,8 @@ mod tests {
 
     #[test]
     fn attribute_with_modified_directive() {
-        let (ast, _warnings) = parse("<input type=\"text\" name=\"field1\" :value=\"msg\" v-validate.on.off>");
+        let (ast, _warnings) =
+            parse("<input type=\"text\" name=\"field1\" :value=\"msg\" v-validate.on.off>");
 
         let wrapper = ast.wrapper.borrow();
         let root = wrapper.children[0].borrow();
@@ -1154,5 +1158,25 @@ mod tests {
         assert_eq!(directive.name, "validate");
         assert!(directive.modifiers.contains("on"));
         assert!(directive.modifiers.contains("off"));
+    }
+
+    #[test]
+    fn literal_attribute() {
+        let (ast1, _warnings1) =
+            parse("<input type=\"text\" name=\"field1\" value=\"hello world\">");
+
+        let wrapper1 = ast1.wrapper.borrow();
+        let root1 = wrapper1.children[0].borrow();
+        assert_eq!(root1.el.attrs[2].name, "name");
+        assert_eq!(root1.el.attrs[2].value, Some("field1".to_string()));
+        assert_eq!(root1.el.attrs[1].name, "type");
+        assert_eq!(root1.el.attrs[1].value, Some("text".to_string()));
+        assert_eq!(root1.el.attrs[0].name, "value");
+        assert_eq!(root1.el.attrs[0].value, Some("hello world".to_string()));
+
+        let (_ast2, warnings2) = parse("<input type=\"text\" name=\"field1\" value=\"{{msg}}\">");
+
+        assert_eq!(warnings2.borrow().len(), 1);
+        assert_eq!(warnings2.borrow()[0], "value=\"{{msg}}\": Interpolation inside attributes has been removed. Use v-bind or the colon shorthand instead. For example, instead of <div id=\"{ val }\">, use <div :id=\"val\">.");
     }
 }
