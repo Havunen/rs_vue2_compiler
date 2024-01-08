@@ -1,12 +1,15 @@
 #[cfg(test)]
 mod tests {
+    use rs_html_parser_tokenizer_tokens::QuoteType;
     use rs_vue2_compiler::ast_tree::ASTTree;
     use rs_vue2_compiler::web::compiler::class::ClassModule;
     use rs_vue2_compiler::web::compiler::model::ModelModule;
     use rs_vue2_compiler::web::compiler::style::StyleModule;
     use rs_vue2_compiler::{CompilerOptions, VueParser, WhitespaceHandling};
     use std::cell::RefCell;
+    use std::collections::HashMap;
     use std::rc::Rc;
+    use unicase::UniCase;
 
     fn parse(template: &str) -> (ASTTree, Rc<RefCell<Vec<String>>>) {
         let warnings = Rc::new(RefCell::new(Vec::new()));
@@ -33,6 +36,12 @@ mod tests {
         let mut parser = VueParser::new(&options);
 
         (parser.parse(template), warnings)
+    }
+
+    fn parse_with_options(template: &str, options: &CompilerOptions) -> ASTTree {
+        let mut parser = VueParser::new(&options);
+
+        parser.parse(template)
     }
 
     #[test]
@@ -577,7 +586,7 @@ mod tests {
         let wrapper = ast.wrapper.borrow();
         let root = wrapper.children[0].borrow();
         assert_eq!(root.el.pre, true);
-        assert_eq!(root.el.attrs.len(), 2); // should be 1 but we can probably deal with it later
+        assert_eq!(root.el.attrs.len(), 1); // should be 1 but we can probably deal with it later
         assert_eq!(root.el.attrs[0].name, "id");
         assert_eq!(root.el.attrs[0].value, Some("message1".to_string()));
         assert_eq!(root.children[0].borrow().el.attrs[0].name, "id");
@@ -1076,10 +1085,10 @@ mod tests {
     fn multiple_dynamic_slot_names_without_warning() {
         let (ast, warnings) = parse(
             "<my-component>
-            <template #[foo]>foo</template>
-            <template #[data]=\"scope\">scope</template>
-            <template #[bar]>bar</template>
-        </my-component>",
+        <template #[foo]>foo</template>
+        <template #[data]=\"scope\">scope</template>
+        <template #[bar]>bar</template>
+    </my-component>",
         );
 
         assert_eq!(warnings.borrow().len(), 0);
@@ -1096,18 +1105,49 @@ mod tests {
         let slot_data = root_scoped_slots.get("data").unwrap().borrow();
         let slot_bar = root_scoped_slots.get("bar").unwrap().borrow();
 
-        assert_eq!(slot_foo.el.token.data, Box::from("template"));
-        assert_eq!(slot_data.el.token.data, Box::from("template"));
-        assert_eq!(slot_bar.el.token.data, Box::from("template"));
+        let attrs_map_foo: HashMap<UniCase<String>, Option<(Box<str>, QuoteType)>> = slot_foo
+            .el
+            .token
+            .attrs
+            .as_ref()
+            .unwrap()
+            .clone()
+            .into_iter()
+            .collect();
+        let attrs_map_data: HashMap<UniCase<String>, Option<(Box<str>, QuoteType)>> = slot_data
+            .el
+            .token
+            .attrs
+            .as_ref()
+            .unwrap()
+            .clone()
+            .into_iter()
+            .collect();
+        let attrs_map_bar: HashMap<UniCase<String>, Option<(Box<str>, QuoteType)>> = slot_bar
+            .el
+            .token
+            .attrs
+            .as_ref()
+            .unwrap()
+            .clone()
+            .into_iter()
+            .collect();
 
-        assert_eq!(slot_foo.el.attrs[0].name, "#[foo]");
-        assert_eq!(slot_foo.el.attrs[0].value, None);
-
-        assert_eq!(slot_data.el.attrs[0].name, "#[data]");
-        assert_eq!(slot_data.el.attrs[0].value, Some("scope".to_string()));
-
-        assert_eq!(slot_bar.el.attrs[0].name, "#[bar]");
-        assert_eq!(slot_bar.el.attrs[0].value, None);
+        assert_eq!(
+            attrs_map_foo.get(&UniCase::new("#[foo]".to_string())),
+            Some(&None)
+        );
+        assert_eq!(
+            attrs_map_data.get(&UniCase::new("#[data]".to_string())),
+            Some(&Some((
+                "scope".to_string().into_boxed_str(),
+                QuoteType::Double
+            )))
+        );
+        assert_eq!(
+            attrs_map_bar.get(&UniCase::new("#[bar]".to_string())),
+            Some(&None)
+        );
     }
 
     #[test]
@@ -1178,5 +1218,47 @@ mod tests {
 
         assert_eq!(warnings2.borrow().len(), 1);
         assert_eq!(warnings2.borrow()[0], "value=\"{{msg}}\": Interpolation inside attributes has been removed. Use v-bind or the colon shorthand instead. For example, instead of <div id=\"{ val }\">, use <div :id=\"val\">.");
+    }
+
+    #[test]
+    fn custom_delimiter() {
+        let options = CompilerOptions {
+            delimiters: Some(("{".to_string(), "}".to_string())),
+            ..Default::default()
+        };
+        let ast = parse_with_options("<p>{msg}</p>", &options);
+
+        let wrapper = ast.wrapper.borrow();
+        let root = wrapper.children[0].borrow();
+        assert_eq!(
+            root.children[0].borrow().el.expression.as_ref().unwrap(),
+            "_s(msg)"
+        );
+    }
+
+    // #[test]
+    // fn not_specified_get_tag_namespace_option() {
+    //     let options = CompilerOptions {
+    //         get_namespace: None,
+    //         ..Default::default()
+    //     };
+    //     let (ast, _warnings) = parse_with_options("<svg><text>hello world</text></svg>", options);
+    //
+    //     let wrapper = ast.wrapper.borrow();
+    //     let root = wrapper.children[0].borrow();
+    //     assert_eq!(root.el.tag, "svg");
+    //     assert!(root.el.ns.is_none());
+    // }
+
+    #[test]
+    fn use_prop_when_prop_modifier_was_explicitly_declared() {
+        let (ast, _warnings) = parse("<component is=\"textarea\" :value.prop=\"val\" />");
+
+        let wrapper = ast.wrapper.borrow();
+        let root = wrapper.children[0].borrow();
+        assert!(root.el.attrs.is_empty());
+        assert_eq!(root.el.props.len(), 1);
+        assert_eq!(root.el.props[0].name, "value");
+        assert_eq!(root.el.props[0].value, Some("val".to_string()));
     }
 }

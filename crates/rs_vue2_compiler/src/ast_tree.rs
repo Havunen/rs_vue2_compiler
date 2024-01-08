@@ -905,9 +905,9 @@ impl ASTNode {
         quote_type: QuoteType,
         is_dynamic: bool,
     ) {
-        // if self.el.ignored.contains(key) {
-        //     return;
-        // }
+        if self.el.ignored.contains(key) {
+            return;
+        }
 
         self.el.plain = false;
 

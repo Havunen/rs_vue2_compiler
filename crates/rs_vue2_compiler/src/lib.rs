@@ -52,13 +52,15 @@ fn print_line(message: &str) {
     println!("{}", message)
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Default, Debug, Copy, Clone, PartialEq, Eq)]
 pub enum WhitespaceHandling {
+    #[default]
     Condense,
     Preserve,
     Ignore,
 }
 
+#[derive(Default)]
 pub struct CompilerOptions {
     pub dev: bool,
     pub is_ssr: bool,
@@ -464,7 +466,7 @@ impl<'a> VueParser<'a> {
 
             if !&final_text.is_empty() {
                 if !self.in_v_pre {
-                    parse_text_result = parse_text(&final_text, &None);
+                    parse_text_result = parse_text(&final_text, &self.options.delimiters);
                 } else {
                     parse_text_result = None;
                 }
