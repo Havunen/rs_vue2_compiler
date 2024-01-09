@@ -137,6 +137,7 @@ const PARSER_OPTIONS: ParserOptions = ParserOptions {
     tokenizer_options: TokenizerOptions {
         xml_mode: Some(false),
         decode_entities: Some(true),
+        ignore_whitespace_between_tags: Some(true),
     },
 };
 

@@ -1308,4 +1308,105 @@ mod tests {
         assert_eq!(span.children[0].borrow().el.kind, ASTElementKind::Text);
         assert_eq!(span.children[0].borrow().el.token.data, Box::from(" "));
     }
+
+    // This is weird requirement, it does not handle \r\n but only handles \n
+    // So as its weird and buggy it is not implemented for now
+    // #[test]
+    // fn ignore_the_first_newline_in_pre_tag() {
+    //     let options = CompilerOptions {
+    //         whitespace_handling: WhitespaceHandling::Preserve,
+    //         ..Default::default()
+    //     };
+    //     let ast = parse_with_options(
+    //         "<div><pre>\nabc</pre>\ndef<pre>\n\nabc</pre></div>",
+    //         &options,
+    //     );
+    //
+    //     let wrapper = ast.wrapper.borrow();
+    //     let root = wrapper.children[0].borrow();
+    //     let pre = root.children[0].borrow();
+    //     assert_eq!(pre.children[0].borrow().el.token.kind, TokenKind::Text);
+    //     assert_eq!(pre.children[0].borrow().el.token.data, Box::from("abc"));
+    //
+    //     let text = root.children[1].borrow();
+    //     assert_eq!(text.el.token.kind, TokenKind::Text);
+    //     assert_eq!(text.el.token.data, Box::from("\ndef"));
+    //
+    //     let pre2 = root.children[2].borrow();
+    //     assert_eq!(pre2.children[0].borrow().el.token.kind, TokenKind::Text);
+    //     assert_eq!(pre2.children[0].borrow().el.token.data, Box::from("\nabc"));
+    // }
+
+    #[test]
+    fn forgivingly_handle_less_than_in_plain_text() {
+        let options = CompilerOptions {
+            ..Default::default()
+        };
+        let ast = parse_with_options("<p>1 < 2 < 3</p>", &options);
+
+        let wrapper = ast.wrapper.borrow();
+        let root = wrapper.children[0].borrow();
+        assert_eq!(root.el.token.data, Box::from("p"));
+        assert_eq!(root.children.len(), 1);
+        assert_eq!(root.children[0].borrow().el.token.kind, TokenKind::Text);
+        assert_eq!(root.children[0].borrow().el.token.data, Box::from("1 < 2 < 3"));
+    }
+
+    #[test]
+    fn ie_conditional_comments() {
+        let options = CompilerOptions {
+            ..Default::default()
+        };
+        let ast = parse_with_options(
+            "<div>
+            <!--[if lte IE 8]>
+              <p>Test 1</p>
+            <![endif]-->
+          </div>",
+            &options,
+        );
+
+        let wrapper = ast.wrapper.borrow();
+        let root = wrapper.children[0].borrow();
+        assert_eq!(root.el.token.data, Box::from("div"));
+        assert_eq!(root.children.len(), 0);
+    }
+
+    #[test]
+    fn parse_content_in_textarea_as_text() {
+        let options = CompilerOptions {
+            whitespace_handling: WhitespaceHandling::Preserve,
+            ..Default::default()
+        };
+
+        let whitespace = parse_with_options(
+            "<textarea>
+            <p>Test 1</p>
+            test2
+        </textarea>",
+            &options,
+        );
+
+        let wrapper = whitespace.wrapper.borrow();
+        let root = wrapper.children[0].borrow();
+        assert_eq!(root.el.token.data, Box::from("textarea"));
+        assert_eq!(root.children.len(), 1);
+        assert_eq!(root.children[0].borrow().el.token.kind, TokenKind::Text);
+        assert_eq!(
+            root.children[0].borrow().el.token.data,
+            Box::from("\n            <p>Test 1</p>\n            test2\n        ")
+        );
+
+        let comment = parse_with_options("<textarea><!--comment--></textarea>", &options);
+
+        let wrapper = comment.wrapper.borrow();
+        let root = wrapper.children[0].borrow();
+        assert_eq!(root.el.token.data, Box::from("textarea"));
+        assert_eq!(root.children.len(), 1);
+        assert_eq!(root.children[0].borrow().el.token.kind, TokenKind::Text);
+        assert_eq!(
+            root.children[0].borrow().el.token.data,
+            Box::from("<!--comment-->")
+        );
+    }
 }
