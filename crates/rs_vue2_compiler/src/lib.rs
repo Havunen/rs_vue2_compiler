@@ -145,7 +145,9 @@ impl<'a> VueParser<'a> {
         VueParser {
             options: &options,
             dev: options.dev,
-            is_pre_tag: options.is_pre_tag.unwrap_or(|_| false),
+            is_pre_tag: options
+                .is_pre_tag
+                .unwrap_or(|t| t.eq_ignore_ascii_case("pre")),
             is_ssr: options.is_ssr,
             in_v_pre: false,
             in_pre: false,

@@ -1,7 +1,8 @@
 #[cfg(test)]
 mod tests {
     use rs_html_parser_tokenizer_tokens::QuoteType;
-    use rs_vue2_compiler::ast_tree::ASTTree;
+    use rs_html_parser_tokens::TokenKind;
+    use rs_vue2_compiler::ast_tree::{ASTElementKind, ASTTree};
     use rs_vue2_compiler::web::compiler::class::ClassModule;
     use rs_vue2_compiler::web::compiler::model::ModelModule;
     use rs_vue2_compiler::web::compiler::style::StyleModule;
@@ -1260,5 +1261,51 @@ mod tests {
         assert_eq!(root.el.props.len(), 1);
         assert_eq!(root.el.props[0].name, "value");
         assert_eq!(root.el.props[0].value, Some("val".to_string()));
+    }
+
+    //     it('pre/post transforms', () => {
+    //   const options = extend({}, baseOptions)
+    //   const spy1 = vi.fn()
+    //   const spy2 = vi.fn()
+    //   options.modules = options.modules.concat([
+    //     {
+    //       preTransformNode(el) {
+    //         spy1(el.tag)
+    //       },
+    //       postTransformNode(el) {
+    //         expect(el.attrs.length).toBe(1)
+    //         spy2(el.tag)
+    //       }
+    //     }
+    //   ])
+    //   parse('<img v-pre src="hi">', options)
+    //   expect(spy1).toHaveBeenCalledWith('img')
+    //   expect(spy2).toHaveBeenCalledWith('img')
+    // })
+
+    #[test]
+    fn preserve_whitespace_in_pre_tag() {
+        let options = CompilerOptions {
+            whitespace_handling: WhitespaceHandling::Preserve,
+            ..Default::default()
+        };
+        let ast = parse_with_options(
+            "<pre><code>  \n<span>hi</span>\n  </code><span> </span></pre>",
+            &options,
+        );
+
+        let wrapper = ast.wrapper.borrow();
+        let root = wrapper.children[0].borrow();
+        let code = root.children[0].borrow();
+        let child = code.children[0].borrow();
+
+        assert_eq!(child.el.kind, ASTElementKind::Text);
+        assert_eq!(child.el.token.data, Box::from("  \n"));
+        assert_eq!(code.children[2].borrow().el.kind, ASTElementKind::Text);
+        assert_eq!(code.children[2].borrow().el.token.data, Box::from("\n  "));
+
+        let span = root.children[1].borrow();
+        assert_eq!(span.children[0].borrow().el.kind, ASTElementKind::Text);
+        assert_eq!(span.children[0].borrow().el.token.data, Box::from(" "));
     }
 }
